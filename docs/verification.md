@@ -15,9 +15,11 @@ The self-test uses generated frames and tones. It does not request screen or mic
 
 Current coverage:
 
-- Browser layout preserves source aspect ratio and native pixels up to the 3840×2160 cap.
+- Browser layout preserves source aspect ratio and native pixels up to the 3840×2160 cap, with capture and output dimensions identical.
 - Full-screen sizing preserves display aspect ratio and does not upscale smaller sources.
-- Browser content occupies at least 94% of the output width and height with integer-aligned placement.
+- Browser content fills the full output canvas without synthetic desktop margins.
+- Stopping preserves a highest-quality pending source and requires a post-record quality choice.
+- Highest-quality export keeps compressed video samples byte-identical; compact export re-encodes at the same dimensions with a one-third target bitrate.
 - H.264 High Profile encoding and MP4 finalization complete successfully.
 - Paused time is removed from the final media timeline.
 - Synthetic computer audio and microphone audio are encoded as independent tracks.
@@ -25,7 +27,7 @@ Current coverage:
 - Combined export produces one mixed AAC track and keeps the H.264 video samples byte-identical.
 - Separate voice export writes an exact valid PCM frame count for the video timeline and stays within the 40 ms cross-tool tolerance.
 
-## v0.2.0 manual validation
+## Previous v0.2.0 manual validation
 
 The release candidate was exercised on a supported recent macOS version with temporary real captures that were deleted immediately after inspection:
 
@@ -40,8 +42,10 @@ The release candidate was exercised on a supported recent macOS version with tem
 ## Manual release checklist
 
 - Browser window: start, pause, resume, stop, and confirm no unrelated app or Snap Recorder UI appears.
+- Confirm the browser fills the complete frame with no wallpaper, rounded mask, shadow, or added margin.
+- Record a changing scene, export highest quality, repeat and export compact; confirm dimensions match and compare file size and text clarity.
 - Full screen: start, pause, resume, stop, and confirm Snap Recorder is excluded.
-- Microphone off: stopping automatically saves exactly one MP4.
+- Microphone off: stopping shows both quality choices and the selected option exports exactly one MP4.
 - Microphone on + computer audio on: verify both combined and separate export.
 - Microphone on + computer audio off: verify combined voice-only video and separate silent-video + M4A output.
 - Confirm separate export creates exactly two files and no ZIP.

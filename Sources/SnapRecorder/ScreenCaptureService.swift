@@ -61,7 +61,7 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
 
     func installPendingRecordingForSelfTest(
         videoURL: URL,
-        microphoneURL: URL,
+        microphoneURL: URL?,
         finalVideoURL: URL
     ) throws {
         guard CommandLine.arguments.contains("--self-test"), pendingRecording == nil else {
@@ -72,7 +72,7 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
             microphoneURL: microphoneURL,
             finalVideoURL: finalVideoURL
         )
-        recoveryURLs = [videoURL, microphoneURL]
+        recoveryURLs = [videoURL, microphoneURL].compactMap { $0 }
     }
 
     func browserWindows() async throws -> [BrowserWindowInfo] {
@@ -216,9 +216,9 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
                 outputURL: temporaryURL,
                 outputSize: outputSize,
                 mode: request.mode,
+                qualityPreset: .maximum,
                 capturesAudio: request.capturesSystemAudio,
-                microphoneOutputURL: microphoneURL,
-                wallpaperURL: request.wallpaperURL
+                microphoneOutputURL: microphoneURL
             )
             createdWriter = writer
 
@@ -299,41 +299,23 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
             throw CaptureError.couldNotFinishWriter("录制器尚未启动。")
         }
 
-        var writerFinished = false
         do {
             try await writer.finish()
-            writerFinished = true
-            if let temporaryMicrophoneURL {
-                let pending = PendingRecording(
-                    videoURL: temporaryOutputURL,
-                    microphoneURL: temporaryMicrophoneURL,
-                    finalVideoURL: finalOutputURL
-                )
-                reset(keepTemporaryFile: true)
-                pendingRecording = pending
-                return .awaitingExportChoice
-            }
-
-            let availableOutputURL = availableOutputURL(startingAt: finalOutputURL)
-            try moveCompletedRecording(from: temporaryOutputURL, to: availableOutputURL)
-            reset()
-            recoveryURLs = []
-            return .exported(RecordingResult(urls: [availableOutputURL]))
+            let pending = PendingRecording(
+                videoURL: temporaryOutputURL,
+                microphoneURL: temporaryMicrophoneURL,
+                finalVideoURL: finalOutputURL
+            )
+            reset(keepTemporaryFile: true)
+            pendingRecording = pending
+            recoveryURLs = [temporaryOutputURL, temporaryMicrophoneURL]
+                .compactMap { $0 }
+            return .awaitingExportChoice
         } catch {
             let recoverableURLs = [temporaryOutputURL, temporaryMicrophoneURL]
                 .compactMap { $0 }
                 .filter { FileManager.default.fileExists(atPath: $0.path) }
-            if writerFinished, temporaryMicrophoneURL == nil {
-                let pending = PendingRecording(
-                    videoURL: temporaryOutputURL,
-                    microphoneURL: nil,
-                    finalVideoURL: finalOutputURL
-                )
-                reset(keepTemporaryFile: true)
-                pendingRecording = pending
-            } else {
-                reset(keepTemporaryFile: true)
-            }
+            reset(keepTemporaryFile: true)
             recoveryURLs = recoverableURLs
             throw error
         }
@@ -350,31 +332,67 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
         return RecordingResult(urls: [outputURL])
     }
 
-    func exportPendingRecording(_ modes: Set<VoiceExportMode>) async throws -> RecordingResult {
-        guard let pendingRecording,
-              let microphoneURL = pendingRecording.microphoneURL else {
+    func exportPendingRecording(
+        qualityPreset: RecordingQualityPreset,
+        modes: Set<VoiceExportMode>
+    ) async throws -> RecordingResult {
+        guard let pendingRecording else {
             throw CaptureError.couldNotFinishWriter("没有等待导出的录制内容。")
         }
-        guard !modes.isEmpty else {
+        let microphoneURL = pendingRecording.microphoneURL
+        guard microphoneURL == nil || !modes.isEmpty else {
             throw CaptureError.couldNotFinishWriter("请至少选择一种导出方式。")
         }
-        let destinations = availableVoiceExportDestinations(
-            startingAt: pendingRecording.finalVideoURL,
-            modes: modes
-        )
+        let effectiveModes: Set<VoiceExportMode> = microphoneURL == nil
+            ? [.combined]
+            : modes
+        var preparedVideoURL: URL?
+        var videoForExport = pendingRecording.videoURL
         var temporaryCombinedURL: URL?
         var temporarySeparateVideoURL: URL?
         var temporaryAlignedVoiceURL: URL?
         var committedURLs: [URL] = []
 
         do {
-            try ensureExportDiskSpace(for: pendingRecording, modes: modes)
+            try ensureExportDiskSpace(
+                for: pendingRecording,
+                modes: effectiveModes
+            )
+
+            if qualityPreset == .compact {
+                let compactURL = try makeTemporaryOutputURL(pathExtension: "mp4")
+                preparedVideoURL = compactURL
+                try await RecordingExporter.compressVideo(
+                    sourceURL: pendingRecording.videoURL,
+                    outputURL: compactURL
+                )
+                videoForExport = compactURL
+            }
+
+            guard let microphoneURL else {
+                let outputURL = availableOutputURL(
+                    startingAt: pendingRecording.finalVideoURL
+                )
+                try moveCompletedRecording(from: videoForExport, to: outputURL)
+                committedURLs.append(outputURL)
+                if qualityPreset == .compact {
+                    try? FileManager.default.removeItem(at: pendingRecording.videoURL)
+                }
+                self.pendingRecording = nil
+                recoveryURLs = []
+                return RecordingResult(urls: [outputURL])
+            }
+
+            let destinations = availableVoiceExportDestinations(
+                startingAt: pendingRecording.finalVideoURL,
+                modes: modes
+            )
 
             if modes.contains(.combined) {
                 let combinedURL = try makeTemporaryOutputURL(pathExtension: "mp4")
                 temporaryCombinedURL = combinedURL
                 try await RecordingExporter.combine(
-                    videoURL: pendingRecording.videoURL,
+                    videoURL: videoForExport,
                     microphoneURL: microphoneURL,
                     outputURL: combinedURL
                 )
@@ -384,7 +402,7 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
                 let separateVideoURL = try makeTemporaryOutputURL(pathExtension: "mp4")
                 temporarySeparateVideoURL = separateVideoURL
                 try copyCompletedRecording(
-                    from: pendingRecording.videoURL,
+                    from: videoForExport,
                     to: separateVideoURL
                 )
 
@@ -392,7 +410,7 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
                 temporaryAlignedVoiceURL = alignedVoiceURL
                 try await RecordingExporter.alignVoice(
                     microphoneURL: microphoneURL,
-                    matchingVideoURL: pendingRecording.videoURL,
+                    matchingVideoURL: videoForExport,
                     outputURL: alignedVoiceURL
                 )
             }
@@ -420,10 +438,16 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
 
             try? FileManager.default.removeItem(at: pendingRecording.videoURL)
             try? FileManager.default.removeItem(at: microphoneURL)
+            if let preparedVideoURL {
+                try? FileManager.default.removeItem(at: preparedVideoURL)
+            }
             self.pendingRecording = nil
             recoveryURLs = []
             return RecordingResult(urls: destinations.selectedURLs(for: modes))
         } catch {
+            if let preparedVideoURL {
+                try? FileManager.default.removeItem(at: preparedVideoURL)
+            }
             if let temporaryCombinedURL {
                 try? FileManager.default.removeItem(at: temporaryCombinedURL)
             }
@@ -437,6 +461,7 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
                 try? FileManager.default.removeItem(at: url)
             }
             recoveryURLs = [pendingRecording.videoURL, microphoneURL]
+                .compactMap { $0 }
                 .filter { FileManager.default.fileExists(atPath: $0.path) }
             throw error
         }

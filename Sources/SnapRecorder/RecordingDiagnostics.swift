@@ -19,8 +19,7 @@ enum RecordingDiagnostics {
             outputURL: outputURL,
             outputSize: outputSize,
             mode: .browser,
-            capturesAudio: false,
-            wallpaperURL: nil
+            capturesAudio: false
         )
 
         let context = CIContext(options: [.useSoftwareRenderer: false])
@@ -97,9 +96,83 @@ enum RecordingDiagnostics {
             )
         }
 
+        let qualityReport = try await validateQualityChoiceExport(
+            sourceVideoURL: outputURL
+        )
         let voiceReport = try await validateVoiceExport()
         let voiceOnlyReport = try await validateVoiceOnlyExport()
-        return "Snap Recorder self-test passed: \(String(format: "%.2f", duration))s, \(Int(naturalSize.width))x\(Int(naturalSize.height)), \(fileSize) bytes; \(voiceReport); \(voiceOnlyReport)"
+        return "Snap Recorder self-test passed: \(String(format: "%.2f", duration))s, \(Int(naturalSize.width))x\(Int(naturalSize.height)), \(fileSize) bytes; \(qualityReport); \(voiceReport); \(voiceOnlyReport)"
+    }
+
+    private static func validateQualityChoiceExport(
+        sourceVideoURL: URL
+    ) async throws -> String {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "SnapRecorder-quality-choice-test-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let maximumSourceURL = directory.appendingPathComponent("maximum-source.mp4")
+        let compactSourceURL = directory.appendingPathComponent("compact-source.mp4")
+        try fileManager.copyItem(at: sourceVideoURL, to: maximumSourceURL)
+        try fileManager.copyItem(at: sourceVideoURL, to: compactSourceURL)
+
+        let service = ScreenCaptureService()
+        let maximumDestination = directory.appendingPathComponent("maximum.mp4")
+        try service.installPendingRecordingForSelfTest(
+            videoURL: maximumSourceURL,
+            microphoneURL: nil,
+            finalVideoURL: maximumDestination
+        )
+        let maximumResult = try await service.exportPendingRecording(
+            qualityPreset: .maximum,
+            modes: []
+        )
+
+        let compactDestination = directory.appendingPathComponent("compact.mp4")
+        try service.installPendingRecordingForSelfTest(
+            videoURL: compactSourceURL,
+            microphoneURL: nil,
+            finalVideoURL: compactDestination
+        )
+        let compactResult = try await service.exportPendingRecording(
+            qualityPreset: .compact,
+            modes: []
+        )
+
+        guard let maximumURL = maximumResult.primaryURL,
+              let compactURL = compactResult.primaryURL else {
+            throw CaptureError.couldNotFinishWriter("画质选择自检没有生成结果文件。")
+        }
+        let sourceSignature = try await videoSampleSignature(at: sourceVideoURL)
+        let maximumSignature = try await videoSampleSignature(at: maximumURL)
+        let compactSignature = try await videoSampleSignature(at: compactURL)
+        let sourceAsset = AVURLAsset(url: sourceVideoURL)
+        let compactAsset = AVURLAsset(url: compactURL)
+        let sourceSize = try await sourceAsset
+            .loadTracks(withMediaType: .video).first?.load(.naturalSize) ?? .zero
+        let compactSize = try await compactAsset
+            .loadTracks(withMediaType: .video).first?.load(.naturalSize) ?? .zero
+        let compactAttributes = try fileManager.attributesOfItem(atPath: compactURL.path)
+        let compactFileSize = (compactAttributes[.size] as? NSNumber)?.intValue ?? 0
+
+        guard maximumResult.urls.count == 1,
+              compactResult.urls.count == 1,
+              sourceSignature == maximumSignature,
+              sourceSignature != compactSignature,
+              sourceSize == compactSize,
+              compactFileSize > 5_000,
+              !fileManager.fileExists(atPath: maximumSourceURL.path),
+              !fileManager.fileExists(atPath: compactSourceURL.path) else {
+            throw CaptureError.couldNotFinishWriter(
+                "最高画质或小体积导出选择自检异常。"
+            )
+        }
+        return "post-record quality choice passed"
     }
 
     private static func validateVoiceOnlyExport() async throws -> String {
@@ -119,8 +192,7 @@ enum RecordingDiagnostics {
             outputSize: outputSize,
             mode: .browser,
             capturesAudio: false,
-            microphoneOutputURL: voiceURL,
-            wallpaperURL: nil
+            microphoneOutputURL: voiceURL
         )
         let context = CIContext(options: [.useSoftwareRenderer: false])
         for frame in 0..<24 {
@@ -177,8 +249,7 @@ enum RecordingDiagnostics {
             outputSize: outputSize,
             mode: .browser,
             capturesAudio: true,
-            microphoneOutputURL: voiceURL,
-            wallpaperURL: nil
+            microphoneOutputURL: voiceURL
         )
         let context = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -279,6 +350,7 @@ enum RecordingDiagnostics {
         guard fileManager.createFile(atPath: desiredVideoURL.path, contents: Data()) else {
             throw CaptureError.couldNotFinishWriter("自检无法创建重名占位文件。")
         }
+        let sourceSignature = try await videoSampleSignature(at: sourceVideoURL)
 
         let service = ScreenCaptureService()
         try service.installPendingRecordingForSelfTest(
@@ -286,7 +358,13 @@ enum RecordingDiagnostics {
             microphoneURL: sourceVoiceURL,
             finalVideoURL: desiredVideoURL
         )
-        let result = try await service.exportPendingRecording(Set(VoiceExportMode.allCases))
+        let result = try await service.exportPendingRecording(
+            qualityPreset: .compact,
+            modes: Set(VoiceExportMode.allCases)
+        )
+        guard result.urls.count == 3 else {
+            throw CaptureError.couldNotFinishWriter("三文件导出数量自检异常。")
+        }
         let outputNames = result.urls.map(\.lastPathComponent)
         let prefixes = ["Snap 录屏 ", "Snap 视频 ", "Snap 人声 "]
         let placeholderAttributes = try fileManager.attributesOfItem(
@@ -297,13 +375,19 @@ enum RecordingDiagnostics {
             let attributes = try fileManager.attributesOfItem(atPath: url.path)
             return (attributes[.size] as? NSNumber)?.intValue ?? 0
         }
+        let combinedSignature = try await videoSampleSignature(at: result.urls[0])
+        let separateSignature = try await videoSampleSignature(at: result.urls[1])
+        let separateAudioTracks = try await AVURLAsset(url: result.urls[1])
+            .loadTracks(withMediaType: .audio)
 
-        guard outputNames.count == 3,
-              zip(outputNames, prefixes).allSatisfy({ name, prefix in
+        guard zip(outputNames, prefixes).allSatisfy({ name, prefix in
                   name.hasPrefix(prefix) && name.contains(" (2)")
               }),
               result.urls.allSatisfy({ fileManager.fileExists(atPath: $0.path) }),
               outputSizes.allSatisfy({ $0 > 0 }),
+              sourceSignature != combinedSignature,
+              combinedSignature == separateSignature,
+              separateAudioTracks.count == 1,
               !fileManager.fileExists(atPath: sourceVideoURL.path),
               !fileManager.fileExists(atPath: sourceVoiceURL.path),
               placeholderSize == 0 else {
@@ -311,7 +395,7 @@ enum RecordingDiagnostics {
                 "三文件导出事务或统一重名后缀自检异常。"
             )
         }
-        return "3-file transaction passed"
+        return "compact 3-file transaction passed"
     }
 
     private static func videoSampleSignature(at url: URL) async throws -> String {
@@ -460,9 +544,6 @@ enum RecordingDiagnostics {
             let layout = CaptureSizing.browserLayout(source: source)
             let sourceRatio = source.width / source.height
             let outputRatio = layout.outputSize.width / layout.outputSize.height
-            let streamRatio = layout.streamSize.width / layout.streamSize.height
-            let widthFill = layout.streamSize.width / layout.outputSize.width
-            let heightFill = layout.streamSize.height / layout.outputSize.height
 
             guard isEven(layout.outputSize.width),
                   isEven(layout.outputSize.height),
@@ -473,15 +554,8 @@ enum RecordingDiagnostics {
                   layout.streamSize.width <= source.width,
                   layout.streamSize.height <= source.height,
                   relativeDifference(outputRatio, sourceRatio) < 0.005,
-                  relativeDifference(streamRatio, sourceRatio) < 0.005,
-                  widthFill >= 0.94,
-                  heightFill >= 0.94,
-                  layout.contentRect.minX.rounded() == layout.contentRect.minX,
-                  layout.contentRect.minY.rounded() == layout.contentRect.minY,
-                  layout.contentRect.minX > 0,
-                  layout.contentRect.minY > 0,
-                  layout.contentRect.maxX < layout.outputSize.width,
-                  layout.contentRect.maxY < layout.outputSize.height else {
+                  layout.streamSize == layout.outputSize,
+                  layout.contentRect == CGRect(origin: .zero, size: layout.outputSize) else {
                 throw CaptureError.couldNotFinishWriter(
                     "浏览器布局自检异常（源 \(source)，输出 \(layout.outputSize)，采集 \(layout.streamSize)）。"
                 )
@@ -491,7 +565,7 @@ enum RecordingDiagnostics {
         let nativeBrowserLayout = CaptureSizing.browserLayout(
             source: CGSize(width: 2_882, height: 1_898)
         )
-        guard nativeBrowserLayout.outputSize == CGSize(width: 3_034, height: 1_998),
+        guard nativeBrowserLayout.outputSize == CGSize(width: 2_882, height: 1_898),
               nativeBrowserLayout.streamSize == CGSize(width: 2_882, height: 1_898) else {
             throw CaptureError.couldNotFinishWriter(
                 "原生浏览器像素自检异常（输出 \(nativeBrowserLayout.outputSize)，采集 \(nativeBrowserLayout.streamSize)）。"
@@ -504,10 +578,22 @@ enum RecordingDiagnostics {
             allowUpscale: false
         )
         guard displaySize == CGSize(width: 3_024, height: 1_964),
-              RecordingQuality.videoBitrate(for: nativeBrowserLayout.outputSize) == 48_495_456,
               RecordingQuality.videoBitrate(
-                for: CaptureSizing.maximumHighDefinitionOutputSize
-              ) == 66_355_200 else {
+                for: nativeBrowserLayout.outputSize,
+                preset: .maximum
+              ) == 43_760_288,
+              RecordingQuality.videoBitrate(
+                for: nativeBrowserLayout.outputSize,
+                preset: .compact
+              ) == 14_586_762,
+              RecordingQuality.videoBitrate(
+                for: CaptureSizing.maximumHighDefinitionOutputSize,
+                preset: .maximum
+              ) == 66_355_200,
+              RecordingQuality.videoBitrate(
+                for: CaptureSizing.maximumHighDefinitionOutputSize,
+                preset: .compact
+              ) == 22_118_400 else {
             throw CaptureError.couldNotFinishWriter(
                 "高清输出自检异常（整屏 \(displaySize)）。"
             )

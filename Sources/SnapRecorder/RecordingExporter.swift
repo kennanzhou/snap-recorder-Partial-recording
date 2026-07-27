@@ -1,8 +1,173 @@
 import AVFoundation
 import CoreMedia
+import CoreVideo
 import Foundation
 
 enum RecordingExporter {
+    static func compressVideo(
+        sourceURL: URL,
+        outputURL: URL
+    ) async throws {
+        let fileManager = FileManager.default
+        try? fileManager.removeItem(at: outputURL)
+
+        let asset = AVURLAsset(url: sourceURL)
+        let duration = try await asset.load(.duration)
+        guard duration.isValid,
+              duration.isNumeric,
+              CMTimeCompare(duration, .zero) > 0,
+              let sourceVideoTrack = try await asset
+                .loadTracks(withMediaType: .video).first else {
+            throw CaptureError.couldNotFinishWriter("无法读取待压缩的视频轨道。")
+        }
+
+        let naturalSize = try await sourceVideoTrack.load(.naturalSize)
+        let outputSize = CGSize(
+            width: abs(naturalSize.width),
+            height: abs(naturalSize.height)
+        )
+        guard outputSize.width > 0, outputSize.height > 0 else {
+            throw CaptureError.couldNotFinishWriter("待压缩视频尺寸无效。")
+        }
+
+        let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = CMTimeRange(start: .zero, duration: duration)
+        let videoOutput = AVAssetReaderTrackOutput(
+            track: sourceVideoTrack,
+            outputSettings: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ]
+        )
+        videoOutput.alwaysCopiesSampleData = false
+        guard reader.canAdd(videoOutput) else {
+            throw CaptureError.couldNotFinishWriter("无法解码待压缩的画面。")
+        }
+        reader.add(videoOutput)
+
+        let sourceAudioTrack = try await asset.loadTracks(withMediaType: .audio).first
+        let audioOutput = sourceAudioTrack.map {
+            AVAssetReaderTrackOutput(track: $0, outputSettings: nil)
+        }
+        if let audioOutput {
+            audioOutput.alwaysCopiesSampleData = false
+            guard reader.canAdd(audioOutput) else {
+                throw CaptureError.couldNotFinishWriter("无法读取原始电脑声音。")
+            }
+            reader.add(audioOutput)
+        }
+
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        writer.shouldOptimizeForNetworkUse = true
+        let qualitySettings = RecordingQuality.videoSettings(
+            for: outputSize,
+            preset: .compact,
+            prioritizesQuality: true
+        )
+        let baseSettings = RecordingQuality.videoSettings(
+            for: outputSize,
+            preset: .compact,
+            prioritizesQuality: false
+        )
+        let videoSettings = writer.canApply(
+            outputSettings: qualitySettings,
+            forMediaType: .video
+        ) ? qualitySettings : baseSettings
+        guard writer.canApply(outputSettings: videoSettings, forMediaType: .video) else {
+            throw CaptureError.couldNotFinishWriter("当前设备不支持小体积视频编码。")
+        }
+
+        let videoInput = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: videoSettings
+        )
+        videoInput.expectsMediaDataInRealTime = false
+        videoInput.transform = try await sourceVideoTrack.load(.preferredTransform)
+        guard writer.canAdd(videoInput) else {
+            throw CaptureError.couldNotFinishWriter("无法创建小体积视频轨道。")
+        }
+        writer.add(videoInput)
+
+        var audioInput: AVAssetWriterInput?
+        if let sourceAudioTrack {
+            let descriptions = try await sourceAudioTrack.load(.formatDescriptions)
+            let input = AVAssetWriterInput(
+                mediaType: .audio,
+                outputSettings: nil,
+                sourceFormatHint: descriptions.first
+            )
+            input.expectsMediaDataInRealTime = false
+            guard writer.canAdd(input) else {
+                throw CaptureError.couldNotFinishWriter("无法保留原始电脑声音。")
+            }
+            writer.add(input)
+            audioInput = input
+        }
+
+        guard writer.startWriting() else {
+            throw CaptureError.couldNotFinishWriter(
+                writer.error?.localizedDescription ?? "小体积编码器启动失败。"
+            )
+        }
+        guard reader.startReading() else {
+            writer.cancelWriting()
+            throw CaptureError.couldNotFinishWriter(
+                reader.error?.localizedDescription ?? "无法开始读取录制原片。"
+            )
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        do {
+            if let audioOutput, let audioInput {
+                async let videoPump: Void = pump(
+                    output: videoOutput,
+                    input: videoInput,
+                    reader: reader,
+                    writer: writer,
+                    label: "小体积画面"
+                )
+                async let audioPump: Void = pump(
+                    output: audioOutput,
+                    input: audioInput,
+                    reader: reader,
+                    writer: writer,
+                    label: "电脑声音"
+                )
+                _ = try await (videoPump, audioPump)
+            } else {
+                try await pump(
+                    output: videoOutput,
+                    input: videoInput,
+                    reader: reader,
+                    writer: writer,
+                    label: "小体积画面"
+                )
+            }
+
+            guard reader.status == .completed else {
+                throw CaptureError.couldNotFinishWriter(
+                    reader.error?.localizedDescription ?? "读取录制原片时中断。"
+                )
+            }
+
+            writer.endSession(atSourceTime: duration)
+            await withCheckedContinuation { continuation in
+                writer.finishWriting {
+                    continuation.resume()
+                }
+            }
+            guard writer.status == .completed else {
+                throw CaptureError.couldNotFinishWriter(
+                    writer.error?.localizedDescription ?? "小体积视频没有完成封装。"
+                )
+            }
+        } catch {
+            reader.cancelReading()
+            writer.cancelWriting()
+            try? fileManager.removeItem(at: outputURL)
+            throw error
+        }
+    }
+
     static func alignVoice(
         microphoneURL: URL,
         matchingVideoURL: URL,

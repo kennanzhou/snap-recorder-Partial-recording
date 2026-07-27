@@ -24,6 +24,7 @@ final class AppModel: ObservableObject {
     @Published var completionNote: String?
     @Published var hasRetryableSave = false
     @Published var recoveryURLs: [URL] = []
+    @Published var selectedQualityPreset: RecordingQualityPreset = .maximum
     @Published var selectedVoiceExportModes: Set<VoiceExportMode> = [.combined]
 
     private let captureService: ScreenCaptureService
@@ -85,16 +86,21 @@ final class AppModel: ObservableObject {
         phase == .choosingExport || hasRetryableSave
     }
 
-    var voiceExportButtonTitle: String {
+    var exportButtonTitle: String {
+        if !activeCapturesMicrophone {
+            return selectedQualityPreset == .maximum
+                ? "导出最高画质"
+                : "导出清晰小体积"
+        }
         switch selectedVoiceExportModes {
         case []:
-            "请至少选择一种"
+            return "请至少选择一种"
         case [.combined]:
-            "导出完整视频"
+            return "导出完整视频"
         case [.separate]:
-            "导出 2 个分轨文件"
+            return "导出 2 个分轨文件"
         default:
-            "导出全部 3 个文件"
+            return "导出全部 3 个文件"
         }
     }
 
@@ -239,12 +245,14 @@ final class AppModel: ObservableObject {
         errorMessage = nil
     }
 
-    func exportVoiceRecording() {
-        guard phase == .choosingExport, !selectedVoiceExportModes.isEmpty else { return }
+    func exportRecording() {
+        guard phase == .choosingExport,
+              !activeCapturesMicrophone || !selectedVoiceExportModes.isEmpty else { return }
+        let qualityPreset = selectedQualityPreset
         let modes = selectedVoiceExportModes
         errorMessage = nil
         phase = .exporting
-        Task { await performVoiceExport(modes) }
+        Task { await performExport(qualityPreset: qualityPreset, modes: modes) }
     }
 
     func retrySavingRecording() {
@@ -257,6 +265,7 @@ final class AppModel: ObservableObject {
         errorMessage = nil
         lastRecordingResult = nil
         recoveryURLs = []
+        selectedQualityPreset = .maximum
         selectedVoiceExportModes = [.combined]
         phase = .idle
         if mode == .browser {
@@ -284,6 +293,7 @@ final class AppModel: ObservableObject {
             lastRecordingResult = nil
             hasRetryableSave = false
             recoveryURLs = []
+            selectedQualityPreset = .maximum
             selectedVoiceExportModes = [.combined]
 
             activeCapturesSystemAudio = capturesSystemAudio
@@ -291,16 +301,12 @@ final class AppModel: ObservableObject {
 
             let outputURL = try makeOutputURL()
             let targetProcessID = mode == .browser ? selectedBrowserWindow?.processID : nil
-            let wallpaperURL = NSScreen.main.flatMap {
-                NSWorkspace.shared.desktopImageURL(for: $0)
-            }
             let request = CaptureRequest(
                 mode: mode,
                 browserWindowID: selectedBrowserWindowID,
                 capturesSystemAudio: capturesSystemAudio,
                 capturesMicrophone: capturesMicrophone,
-                outputURL: outputURL,
-                wallpaperURL: wallpaperURL
+                outputURL: outputURL
             )
 
             phase = .countdown
@@ -386,16 +392,24 @@ final class AppModel: ObservableObject {
             lastRecordingResult = result
             phase = .finished
         case .awaitingExportChoice:
+            selectedQualityPreset = .maximum
             selectedVoiceExportModes = [.combined]
             phase = .choosingExport
         }
     }
 
-    private func performVoiceExport(_ modes: Set<VoiceExportMode>) async {
-        guard phase == .exporting, !modes.isEmpty else { return }
+    private func performExport(
+        qualityPreset: RecordingQualityPreset,
+        modes: Set<VoiceExportMode>
+    ) async {
+        guard phase == .exporting,
+              !activeCapturesMicrophone || !modes.isEmpty else { return }
 
         do {
-            let result = try await captureService.exportPendingRecording(modes)
+            let result = try await captureService.exportPendingRecording(
+                qualityPreset: qualityPreset,
+                modes: modes
+            )
             lastRecordingResult = result
             recoveryURLs = []
             phase = .finished

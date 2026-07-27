@@ -106,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if model.phase == .choosingExport {
             let alert = NSAlert()
             alert.messageText = "录制还没有导出"
-            alert.informativeText = "请至少选择一种导出方式并完成保存，避免丢失已录好的人声。"
+            alert.informativeText = "请选择导出画质并完成保存，避免丢失已经录好的内容。"
             alert.addButton(withTitle: "继续导出")
             alert.runModal()
             windowCoordinator?.showMainWindow()
