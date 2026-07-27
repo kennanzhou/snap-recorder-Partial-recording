@@ -59,7 +59,7 @@ Snap Recorder 把录屏缩短成一条短路径：**选择来源 → 3 秒倒计
 结束录制后可选择“最高画质”或“清晰小体积”。最高画质直接保留录制原片；小体积档保持相同分辨率，使用约 1/3 的视频目标码率重新压缩，并开启更高压缩效率，优先保住网页文字和界面细节。实际文件大小仍会随画面变化与声音内容浮动。
 
 <p align="center">
-  <img src="docs/images/snap-recorder-quality-options.jpg" width="560" alt="Snap Recorder 录制结束后的双画质导出选择：最高画质与清晰小体积">
+  <img src="docs/images/snap-recorder-quality-options.png" width="840" alt="Snap Recorder 录制结束后的双画质导出选择：最高画质与清晰小体积">
   <br>
   <sub>同一段录屏，可选择保留原片质量，或保持分辨率并把目标体积压缩到约 1/3</sub>
 </p>
