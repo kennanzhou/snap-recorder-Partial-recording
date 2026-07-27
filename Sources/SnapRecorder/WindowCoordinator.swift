@@ -50,7 +50,7 @@ final class WindowCoordinator: NSObject {
             window = mainWindow
         } else {
             let created = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
+                contentRect: NSRect(x: 0, y: 0, width: 560, height: 510),
                 styleMask: [.titled, .closable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
@@ -110,11 +110,16 @@ final class WindowCoordinator: NSObject {
                 backing: .buffered,
                 defer: false
             )
-            created.level = .statusBar
+            created.level = .screenSaver
             created.isFloatingPanel = true
             created.hidesOnDeactivate = false
             created.becomesKeyOnlyIfNeeded = true
-            created.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+            created.collectionBehavior = [
+                .canJoinAllSpaces,
+                .fullScreenAuxiliary,
+                .stationary,
+                .ignoresCycle
+            ]
             created.backgroundColor = .clear
             created.isOpaque = false
             created.hasShadow = true
@@ -139,10 +144,17 @@ final class WindowCoordinator: NSObject {
             backing: .buffered,
             defer: false
         )
-        panel.level = .statusBar
+        panel.level = .screenSaver
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [
+            .canJoinAllSpaces,
+            .fullScreenAuxiliary,
+            .stationary,
+            .ignoresCycle
+        ]
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true

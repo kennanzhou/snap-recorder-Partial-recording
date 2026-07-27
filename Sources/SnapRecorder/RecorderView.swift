@@ -24,7 +24,7 @@ struct RecorderView: View {
             content
                 .padding(28)
         }
-        .frame(width: 560, height: 440)
+        .frame(width: 560, height: 510)
         .preferredColorScheme(.dark)
         .onAppear {
             if model.permissionGranted {
@@ -110,7 +110,7 @@ struct RecorderView: View {
                 Text("开始你的第一次录屏")
                     .font(.system(size: 22, weight: .semibold))
 
-                Text("需要 macOS 的屏幕录制权限。视频只在这台 Mac 上处理，完成后自动保存到“下载”。")
+                Text("需要 macOS 的屏幕录制权限。视频只在这台 Mac 上处理，录完选择画质并保存到“下载”。")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -359,7 +359,7 @@ struct RecorderView: View {
             ProgressView()
                 .controlSize(.large)
                 .padding(.bottom, 18)
-            Text(model.phase == .preparingExport ? "正在整理录制…" : "正在生成高清视频…")
+            Text(model.phase == .preparingExport ? "正在整理录制…" : "正在生成视频…")
                 .font(.system(size: 21, weight: .semibold))
             Text("完成后会自动保存到“下载”")
                 .font(.system(size: 13))
@@ -374,62 +374,91 @@ struct RecorderView: View {
             header
             Spacer()
 
-            Text("选择要保存的文件")
+            Text("选择导出画质")
                 .font(.system(size: 22, weight: .semibold))
-            Text("可以选一种，也可以两种都选")
+            Text("录制原片已保留，选择这次要生成的版本")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .padding(.top, 6)
 
-            VStack(spacing: 11) {
-                Button {
-                    model.toggleVoiceExportMode(.combined)
-                } label: {
-                    exportChoiceLabel(
-                        title: "完整视频",
-                        detail: model.activeCapturesSystemAudio
-                            ? "画面、电脑声音和人声合成 1 个 MP4"
-                            : "画面和人声合成 1 个 MP4",
-                        icon: "rectangle.stack.badge.play.fill",
-                        isSelected: model.selectedVoiceExportModes.contains(.combined)
+            HStack(spacing: 10) {
+                ForEach(RecordingQualityPreset.allCases) { preset in
+                    Button {
+                        model.selectedQualityPreset = preset
+                    } label: {
+                        qualityChoiceLabel(
+                            preset: preset,
+                            isSelected: model.selectedQualityPreset == preset
+                        )
+                    }
+                    .buttonStyle(
+                        SnapExportChoiceButtonStyle(
+                            isSelected: model.selectedQualityPreset == preset
+                        )
                     )
                 }
-                .buttonStyle(
-                    SnapExportChoiceButtonStyle(
-                        isSelected: model.selectedVoiceExportModes.contains(.combined)
-                    )
-                )
-
-                Button {
-                    model.toggleVoiceExportMode(.separate)
-                } label: {
-                    exportChoiceLabel(
-                        title: "视频和人声分轨",
-                        detail: model.activeCapturesSystemAudio
-                            ? "视频保留电脑声音，另存清晰人声 M4A"
-                            : "无声视频 MP4 + 清晰人声 M4A",
-                        icon: "square.split.2x1.fill",
-                        isSelected: model.selectedVoiceExportModes.contains(.separate)
-                    )
-                }
-                .buttonStyle(
-                    SnapExportChoiceButtonStyle(
-                        isSelected: model.selectedVoiceExportModes.contains(.separate)
-                    )
-                )
             }
-            .padding(.top, 20)
+            .padding(.top, 18)
+
+            if model.activeCapturesMicrophone {
+                Text("人声文件")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 14)
+
+                VStack(spacing: 8) {
+                    Button {
+                        model.toggleVoiceExportMode(.combined)
+                    } label: {
+                        exportChoiceLabel(
+                            title: "完整视频",
+                            detail: model.activeCapturesSystemAudio
+                                ? "画面、电脑声音和人声合成 1 个 MP4"
+                                : "画面和人声合成 1 个 MP4",
+                            icon: "rectangle.stack.badge.play.fill",
+                            isSelected: model.selectedVoiceExportModes.contains(.combined)
+                        )
+                    }
+                    .buttonStyle(
+                        SnapExportChoiceButtonStyle(
+                            isSelected: model.selectedVoiceExportModes.contains(.combined)
+                        )
+                    )
+
+                    Button {
+                        model.toggleVoiceExportMode(.separate)
+                    } label: {
+                        exportChoiceLabel(
+                            title: "视频和人声分轨",
+                            detail: model.activeCapturesSystemAudio
+                                ? "视频保留电脑声音，另存清晰人声 M4A"
+                                : "无声视频 MP4 + 清晰人声 M4A",
+                            icon: "square.split.2x1.fill",
+                            isSelected: model.selectedVoiceExportModes.contains(.separate)
+                        )
+                    }
+                    .buttonStyle(
+                        SnapExportChoiceButtonStyle(
+                            isSelected: model.selectedVoiceExportModes.contains(.separate)
+                        )
+                    )
+                }
+            }
 
             Button {
-                model.exportVoiceRecording()
+                model.exportRecording()
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "square.and.arrow.down.fill")
-                    Text(model.voiceExportButtonTitle)
+                    Text(model.exportButtonTitle)
                 }
             }
             .buttonStyle(SnapPrimaryButtonStyle())
-            .disabled(model.selectedVoiceExportModes.isEmpty)
+            .disabled(
+                model.activeCapturesMicrophone
+                    && model.selectedVoiceExportModes.isEmpty
+            )
             .padding(.top, 15)
 
             if let errorMessage = model.errorMessage {
@@ -449,7 +478,7 @@ struct RecorderView: View {
                 }
                 .padding(.top, 10)
             } else {
-                Text("保存到“下载”，视频画质保持不变")
+                Text(model.selectedQualityPreset.detail)
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .padding(.top, 11)
@@ -457,6 +486,29 @@ struct RecorderView: View {
 
             Spacer()
         }
+    }
+
+    private func qualityChoiceLabel(
+        preset: RecordingQualityPreset,
+        isSelected: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Image(systemName: preset == .maximum ? "sparkles.tv" : "arrow.down.right.circle")
+                    .font(.system(size: 18, weight: .medium))
+                Spacer()
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? .green : .white.opacity(0.45))
+            }
+            Text(preset.title)
+                .font(.system(size: 14, weight: .semibold))
+            Text(preset == .maximum ? "原片质量 · 文件较大" : "同分辨率 · 目标约 1/3")
+                .font(.system(size: 10))
+                .opacity(0.72)
+        }
+        .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
     private func exportChoiceLabel(

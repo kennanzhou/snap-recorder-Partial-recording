@@ -2,7 +2,6 @@ import AVFoundation
 import CoreMedia
 import CoreVideo
 import Foundation
-import VideoToolbox
 
 final class RecordingWriter {
     private let assetWriter: AVAssetWriter
@@ -27,44 +26,24 @@ final class RecordingWriter {
         outputURL: URL,
         outputSize: CGSize,
         mode: CaptureMode,
+        qualityPreset: RecordingQualityPreset = .maximum,
         capturesAudio: Bool,
-        microphoneOutputURL: URL? = nil,
-        wallpaperURL: URL?
+        microphoneOutputURL: URL? = nil
     ) throws {
         try? FileManager.default.removeItem(at: outputURL)
         assetWriter = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
         assetWriter.shouldOptimizeForNetworkUse = true
 
-        let bitrate = RecordingQuality.videoBitrate(for: outputSize)
-        let baseCompression: [String: Any] = [
-            AVVideoAverageBitRateKey: bitrate,
-            AVVideoMaxKeyFrameIntervalKey: 120,
-            AVVideoMaxKeyFrameIntervalDurationKey: 2,
-            AVVideoExpectedSourceFrameRateKey: 60,
-            AVVideoAllowFrameReorderingKey: false,
-            AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-            AVVideoH264EntropyModeKey: AVVideoH264EntropyModeCABAC
-        ]
-        let makeVideoSettings: ([String: Any]) -> [String: Any] = { compression in
-            [
-                AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: Int(outputSize.width),
-                AVVideoHeightKey: Int(outputSize.height),
-                AVVideoCompressionPropertiesKey: compression,
-                AVVideoColorPropertiesKey: [
-                    AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
-                    AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
-                    AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
-                ]
-            ]
-        }
-
-        var qualityCompression = baseCompression
-        qualityCompression[
-            kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality as String
-        ] = false
-        let qualitySettings = makeVideoSettings(qualityCompression)
-        let baseSettings = makeVideoSettings(baseCompression)
+        let qualitySettings = RecordingQuality.videoSettings(
+            for: outputSize,
+            preset: qualityPreset,
+            prioritizesQuality: true
+        )
+        let baseSettings = RecordingQuality.videoSettings(
+            for: outputSize,
+            preset: qualityPreset,
+            prioritizesQuality: false
+        )
         let videoSettings = assetWriter.canApply(
             outputSettings: qualitySettings,
             forMediaType: .video
@@ -104,8 +83,7 @@ final class RecordingWriter {
 
         compositor = FrameCompositor(
             mode: mode,
-            outputSize: outputSize,
-            wallpaperURL: wallpaperURL
+            outputSize: outputSize
         )
 
         guard assetWriter.canAdd(videoInput) else {

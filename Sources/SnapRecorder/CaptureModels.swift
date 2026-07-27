@@ -1,5 +1,7 @@
+import AVFoundation
 import CoreGraphics
 import Foundation
+import VideoToolbox
 
 enum CaptureMode: String, CaseIterable, Identifiable {
     case browser
@@ -36,6 +38,27 @@ enum VoiceExportMode: CaseIterable, Hashable {
     case separate
 }
 
+enum RecordingQualityPreset: String, CaseIterable, Identifiable {
+    case maximum
+    case compact
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .maximum: "最高画质"
+        case .compact: "清晰小体积"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .maximum: "保留录制原片，清晰度最高"
+        case .compact: "同分辨率压缩，体积目标约 1/3"
+        }
+    }
+}
+
 struct RecordingResult {
     let urls: [URL]
 
@@ -67,7 +90,6 @@ struct CaptureRequest {
     let capturesSystemAudio: Bool
     let capturesMicrophone: Bool
     let outputURL: URL
-    let wallpaperURL: URL?
 }
 
 enum CaptureError: LocalizedError {
@@ -122,7 +144,6 @@ enum CaptureError: LocalizedError {
 
 enum CaptureSizing {
     static let maximumHighDefinitionOutputSize = CGSize(width: 3_840, height: 2_160)
-    static let browserContentInsetFraction: CGFloat = 0.025
 
     struct BrowserLayout {
         let outputSize: CGSize
@@ -135,53 +156,20 @@ enum CaptureSizing {
             return BrowserLayout(outputSize: .zero, streamSize: .zero, contentRect: .zero)
         }
 
-        let contentFraction = 1 - 2 * browserContentInsetFraction
-        let maximumContentSize = evenSize(
-            width: maximumHighDefinitionOutputSize.width * contentFraction,
-            height: maximumHighDefinitionOutputSize.height * contentFraction
-        )
-        let boundedSourceSize = fit(
+        let outputSize = fit(
             source: source,
-            inside: maximumContentSize,
-            allowUpscale: false
-        )
-        let outputSize = evenCeilingSize(
-            width: boundedSourceSize.width / contentFraction,
-            height: boundedSourceSize.height / contentFraction
-        )
-        let contentRect = browserContentRect(in: outputSize)
-        let streamSize = fit(
-            source: source,
-            inside: contentRect.size,
+            inside: maximumHighDefinitionOutputSize,
             allowUpscale: false
         )
         return BrowserLayout(
             outputSize: outputSize,
-            streamSize: streamSize,
-            contentRect: contentRect
-        )
-    }
-
-    static func browserContentRect(in outputSize: CGSize) -> CGRect {
-        let contentFraction = 1 - 2 * browserContentInsetFraction
-        let contentSize = evenSize(
-            width: outputSize.width * contentFraction,
-            height: outputSize.height * contentFraction
-        )
-        return CGRect(
-            x: (outputSize.width - contentSize.width) / 2,
-            y: (outputSize.height - contentSize.height) / 2,
-            width: contentSize.width,
-            height: contentSize.height
+            streamSize: outputSize,
+            contentRect: CGRect(origin: .zero, size: outputSize)
         )
     }
 
     static func evenSize(width: CGFloat, height: CGFloat) -> CGSize {
         CGSize(width: even(width), height: even(height))
-    }
-
-    static func evenCeilingSize(width: CGFloat, height: CGFloat) -> CGSize {
-        CGSize(width: evenCeiling(width), height: evenCeiling(height))
     }
 
     static func fit(source: CGSize, inside bounds: CGSize, allowUpscale: Bool = true) -> CGSize {
@@ -198,16 +186,55 @@ enum CaptureSizing {
         let integer = max(2, Int(value.rounded(.down)))
         return CGFloat(integer - integer % 2)
     }
-
-    private static func evenCeiling(_ value: CGFloat) -> CGFloat {
-        let integer = max(2, Int(value.rounded(.up)))
-        return CGFloat(integer + integer % 2)
-    }
 }
 
 enum RecordingQuality {
-    static func videoBitrate(for outputSize: CGSize) -> Int {
+    static func videoBitrate(
+        for outputSize: CGSize,
+        preset: RecordingQualityPreset
+    ) -> Int {
         let pixelCount = Int(outputSize.width * outputSize.height)
-        return max(24_000_000, min(68_000_000, pixelCount * 8))
+        let maximumBitrate = max(24_000_000, min(68_000_000, pixelCount * 8))
+        switch preset {
+        case .maximum:
+            return maximumBitrate
+        case .compact:
+            return maximumBitrate / 3
+        }
+    }
+
+    static func videoSettings(
+        for outputSize: CGSize,
+        preset: RecordingQualityPreset,
+        prioritizesQuality: Bool
+    ) -> [String: Any] {
+        var compression: [String: Any] = [
+            AVVideoAverageBitRateKey: videoBitrate(
+                for: outputSize,
+                preset: preset
+            ),
+            AVVideoMaxKeyFrameIntervalKey: 120,
+            AVVideoMaxKeyFrameIntervalDurationKey: 2,
+            AVVideoExpectedSourceFrameRateKey: 60,
+            AVVideoAllowFrameReorderingKey: preset == .compact,
+            AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+            AVVideoH264EntropyModeKey: AVVideoH264EntropyModeCABAC
+        ]
+        if prioritizesQuality {
+            compression[
+                kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality as String
+            ] = false
+        }
+        return [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: Int(outputSize.width),
+            AVVideoHeightKey: Int(outputSize.height),
+            AVVideoCompressionPropertiesKey: compression,
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
+            ]
+        ]
     }
 }
