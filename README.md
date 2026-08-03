@@ -2,15 +2,13 @@
   <img src="assets/SnapRecorderIcon.svg" width="96" alt="Snap Recorder 图标">
   <h1>Snap Recorder</h1>
   <p><strong>极简录屏，高清保存。</strong></p>
+  <h2>
+    <a href="https://github.com/shuyan-5200/snap-recorder/releases/latest">⬇️ 下载最新版</a>
+    &nbsp;&nbsp;&nbsp;
+    <a href="https://shuyan-5200.github.io/snap-recorder/">🌐 产品主页</a>
+  </h2>
   <p>面向 macOS 的轻量录屏工具：浏览器或整个屏幕，本地处理，录完选择画质并保存。</p>
   <p><sub>A tiny, local-first macOS screen recorder for browser windows and the full display.</sub></p>
-  <p>
-    <a href="https://shuyan-5200.github.io/snap-recorder/"><strong>产品主页</strong></a>
-    ·
-    <a href="https://github.com/shuyan-5200/snap-recorder/releases/latest"><strong>下载最新版</strong></a>
-    ·
-    <a href="#从源码构建">从源码构建</a>
-  </p>
   <p>
     <a href="https://github.com/shuyan-5200/snap-recorder/releases/latest"><img src="https://img.shields.io/github/v/release/shuyan-5200/snap-recorder?style=flat-square&amp;label=release" alt="最新版本"></a>
     <a href="https://github.com/shuyan-5200/snap-recorder/actions/workflows/ci.yml"><img src="https://github.com/shuyan-5200/snap-recorder/actions/workflows/ci.yml/badge.svg" alt="构建状态"></a>
