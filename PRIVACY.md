@@ -8,7 +8,6 @@ Snap Recorder is a local-only macOS screen recorder.
 - System Audio: used only when “Computer Audio” is enabled.
 - Microphone: requested only after the user explicitly enables “Voice”.
 - Downloads folder: used to save completed recordings automatically.
-- Desktop wallpaper: read locally to create the background in browser-window mode.
 - Browser application names and window titles: read only in memory to build the source picker; they are not written to disk or uploaded.
 
 ## What Snap Recorder does not do
