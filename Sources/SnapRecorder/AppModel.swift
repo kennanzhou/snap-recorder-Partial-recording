@@ -2,12 +2,14 @@ import AppKit
 import AVFoundation
 import CoreGraphics
 import Foundation
+import ScreenCaptureKit
 
 @MainActor
 final class AppModel: ObservableObject {
     @Published var mode: CaptureMode = .browser
     @Published var capturesSystemAudio = true
     @Published var capturesMicrophone = false
+    @Published var capturesMouseEffects = true
     @Published var isRequestingMicrophonePermission = false
     @Published var microphoneMessage: String?
     @Published var browserWindows: [BrowserWindowInfo] = []
@@ -18,6 +20,14 @@ final class AppModel: ObservableObject {
     @Published var isLoadingWindows = false
     @Published var browserSelectionNote: String?
     @Published var browserListError: String?
+    @Published var selectedRegionAspectRatio: CaptureAspectRatio = .widescreen
+    @Published var captureRegion: CaptureRegion?
+    @Published var captureRegionCornerStyle: FocusMaskCornerStyle = .rounded
+    @Published var appliesSoftCornerVignette = false
+    @Published var isFocusMaskEnabled = false
+    @Published var focusMaskCornerStyle: FocusMaskCornerStyle = .rounded
+    @Published var focusMask: CaptureFocusMask?
+    @Published var isRegionSelectionLocked = false
     @Published var elapsedTime: TimeInterval = 0
     @Published var lastRecordingResult: RecordingResult?
     @Published var errorMessage: String?
@@ -66,6 +76,9 @@ final class AppModel: ObservableObject {
         if mode == .browser {
             return selectedBrowserWindow != nil
         }
+        if mode == .region {
+            return captureRegion != nil
+        }
         return true
     }
 
@@ -105,21 +118,38 @@ final class AppModel: ObservableObject {
     }
 
     func requestPermission() {
+        guard !hasRequestedPermission else {
+            recheckPermission()
+            return
+        }
         hasRequestedPermission = true
         let result = CGRequestScreenCaptureAccess()
         permissionGranted = result || CGPreflightScreenCaptureAccess()
 
         if permissionGranted {
             Task { await refreshBrowserWindows() }
+            captureModeDidChange(mode)
         }
     }
 
     func recheckPermission() {
         let nowGranted = CGPreflightScreenCaptureAccess()
         permissionGranted = nowGranted
+        if !nowGranted {
+            isRegionSelectionLocked = false
+            windowCoordinator.hideRegionSelection(resetMainWindowLevel: true)
+            windowCoordinator.updateGlobalShortcuts(
+                isRegionPreparing: false,
+                isRegionLocked: false,
+                isRecording: false
+            )
+        }
         if nowGranted,
            phase == .idle || phase == .failed || phase == .finished {
             Task { await refreshBrowserWindows() }
+        }
+        if nowGranted, mode == .region, phase == .idle {
+            captureModeDidChange(.region)
         }
 
         if microphoneFeatureAvailable {
@@ -180,6 +210,92 @@ final class AppModel: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
+    func captureModeDidChange(_ newMode: CaptureMode) {
+        guard permissionGranted else {
+            isRegionSelectionLocked = false
+            windowCoordinator.hideRegionSelection(resetMainWindowLevel: true)
+            windowCoordinator.updateGlobalShortcuts(
+                isRegionPreparing: false,
+                isRegionLocked: false,
+                isRecording: false
+            )
+            return
+        }
+        guard newMode == .region else {
+            isRegionSelectionLocked = false
+            windowCoordinator.hideRegionSelection(resetMainWindowLevel: true)
+            windowCoordinator.updateGlobalShortcuts(
+                isRegionPreparing: false,
+                isRegionLocked: false,
+                isRecording: false
+            )
+            return
+        }
+
+        captureRegion = windowCoordinator.showRegionSelection(
+            aspectRatio: selectedRegionAspectRatio,
+            captureCornerStyle: captureRegionCornerStyle,
+            focusMaskEnabled: isFocusMaskEnabled,
+            focusMaskCornerStyle: focusMaskCornerStyle,
+            interactionLocked: isRegionSelectionLocked,
+            selectionChanged: { [weak self] region in
+                self?.captureRegion = region
+            },
+            focusMaskChanged: { [weak self] mask in
+                self?.focusMask = mask
+            }
+        )
+        windowCoordinator.updateGlobalShortcuts(
+            isRegionPreparing: phase == .idle,
+            isRegionLocked: isRegionSelectionLocked,
+            isRecording: false
+        )
+    }
+
+    func selectRegionAspectRatio(_ aspectRatio: CaptureAspectRatio) {
+        selectedRegionAspectRatio = aspectRatio
+        if aspectRatio == .custom, isFocusMaskEnabled {
+            isFocusMaskEnabled = false
+            focusMask = nil
+            windowCoordinator.setRegionFocusMaskEnabled(false)
+        }
+        captureRegion = windowCoordinator.updateRegionAspectRatio(aspectRatio)
+    }
+
+    func setFocusMaskEnabled(_ enabled: Bool) {
+        let resolved = enabled && selectedRegionAspectRatio.fixedValue != nil
+        isFocusMaskEnabled = resolved
+        focusMask = windowCoordinator.setRegionFocusMaskEnabled(resolved)
+    }
+
+    func setCaptureRegionCornerStyle(_ style: FocusMaskCornerStyle) {
+        captureRegionCornerStyle = style
+        windowCoordinator.setRegionCaptureCornerStyle(style)
+        if style == .square {
+            appliesSoftCornerVignette = false
+        }
+    }
+
+    func setFocusMaskCornerStyle(_ style: FocusMaskCornerStyle) {
+        focusMaskCornerStyle = style
+        focusMask = windowCoordinator.setRegionFocusMaskCornerStyle(style)
+    }
+
+    func toggleRegionSelectionLock() {
+        guard mode == .region, phase == .idle else { return }
+        isRegionSelectionLocked = windowCoordinator.toggleRegionSelectionLocked()
+        windowCoordinator.updateGlobalShortcuts(
+            isRegionPreparing: true,
+            isRegionLocked: isRegionSelectionLocked,
+            isRecording: false
+        )
+    }
+
+    func startRecordingFromShortcut() {
+        guard canStartRecording else { return }
+        startRecording()
+    }
+
     func refreshBrowserWindows() async {
         guard permissionGranted, !isLoadingWindows else { return }
         isLoadingWindows = true
@@ -210,7 +326,11 @@ final class AppModel: ObservableObject {
             }
             hasLoadedBrowserWindows = true
         } catch {
-            browserListError = error.localizedDescription
+            if isScreenCapturePermissionFailure(error) {
+                enterScreenCapturePermissionState()
+            } else {
+                browserListError = error.localizedDescription
+            }
         }
     }
 
@@ -267,9 +387,12 @@ final class AppModel: ObservableObject {
         recoveryURLs = []
         selectedQualityPreset = .maximum
         selectedVoiceExportModes = [.combined]
+        isRegionSelectionLocked = false
         phase = .idle
         if mode == .browser {
             Task { await refreshBrowserWindows() }
+        } else if mode == .region {
+            captureModeDidChange(.region)
         }
     }
 
@@ -285,6 +408,15 @@ final class AppModel: ObservableObject {
 
     private func performStartRecording() async {
         guard canStartRecording else { return }
+
+        if mode == .region {
+            isRegionSelectionLocked = windowCoordinator.setRegionSelectionLocked(true)
+        }
+        windowCoordinator.updateGlobalShortcuts(
+            isRegionPreparing: false,
+            isRegionLocked: false,
+            isRecording: false
+        )
 
         do {
             try ensureDiskSpace()
@@ -304,6 +436,11 @@ final class AppModel: ObservableObject {
             let request = CaptureRequest(
                 mode: mode,
                 browserWindowID: selectedBrowserWindowID,
+                region: mode == .region ? captureRegion : nil,
+                focusMask: mode == .region && isFocusMaskEnabled ? focusMask : nil,
+                captureCornerStyle: captureRegionCornerStyle,
+                appliesSoftCornerVignette: mode == .region && appliesSoftCornerVignette,
+                capturesMouseEffects: capturesMouseEffects,
                 capturesSystemAudio: capturesSystemAudio,
                 capturesMicrophone: capturesMicrophone,
                 outputURL: outputURL
@@ -319,13 +456,56 @@ final class AppModel: ObservableObject {
             phase = .recording
             beginElapsedTimer()
             windowCoordinator.showRecordingHUD()
+            windowCoordinator.updateGlobalShortcuts(
+                isRegionPreparing: false,
+                isRegionLocked: false,
+                isRecording: true
+            )
         } catch {
             stopElapsedTimer()
-            phase = .failed
-            errorMessage = error.localizedDescription
             windowCoordinator.hideRecordingHUD()
             windowCoordinator.showMainWindow()
+            if isScreenCapturePermissionFailure(error) {
+                phase = .idle
+                errorMessage = nil
+                enterScreenCapturePermissionState()
+            } else {
+                phase = .failed
+                errorMessage = error.localizedDescription
+            }
+            if mode == .region {
+                isRegionSelectionLocked = windowCoordinator.setRegionSelectionLocked(false)
+                windowCoordinator.updateGlobalShortcuts(
+                    isRegionPreparing: false,
+                    isRegionLocked: false,
+                    isRecording: false
+                )
+            }
         }
+    }
+
+    private func isScreenCapturePermissionFailure(_ error: Error) -> Bool {
+        if let captureError = error as? CaptureError,
+           case .permissionRequired = captureError {
+            return true
+        }
+
+        let nsError = error as NSError
+        return nsError.domain == SCStreamErrorDomain
+            && nsError.code == SCStreamError.Code.userDeclined.rawValue
+    }
+
+    private func enterScreenCapturePermissionState() {
+        permissionGranted = false
+        hasRequestedPermission = true
+        browserListError = nil
+        isRegionSelectionLocked = false
+        windowCoordinator.hideRegionSelection(resetMainWindowLevel: true)
+        windowCoordinator.updateGlobalShortcuts(
+            isRegionPreparing: false,
+            isRegionLocked: false,
+            isRecording: false
+        )
     }
 
     private func pauseRecording() async {
@@ -344,10 +524,16 @@ final class AppModel: ObservableObject {
 
     private func performStopRecording() async {
         guard phase.isCapturing else { return }
+        windowCoordinator.updateGlobalShortcuts(
+            isRegionPreparing: false,
+            isRegionLocked: false,
+            isRecording: false
+        )
         freezeElapsedTime()
         stopElapsedTimer()
         phase = .preparingExport
         windowCoordinator.hideRecordingHUD()
+        windowCoordinator.hideRegionSelection(resetMainWindowLevel: true)
         windowCoordinator.showMainWindow()
 
         do {
@@ -367,10 +553,17 @@ final class AppModel: ObservableObject {
         isHandlingUnexpectedStop = true
         defer { isHandlingUnexpectedStop = false }
 
+        windowCoordinator.updateGlobalShortcuts(
+            isRegionPreparing: false,
+            isRegionLocked: false,
+            isRecording: false
+        )
+
         freezeElapsedTime()
         stopElapsedTimer()
         phase = .preparingExport
         windowCoordinator.hideRecordingHUD()
+        windowCoordinator.hideRegionSelection(resetMainWindowLevel: true)
         windowCoordinator.showMainWindow()
 
         do {

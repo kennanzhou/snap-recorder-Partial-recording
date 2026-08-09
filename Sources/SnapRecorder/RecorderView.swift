@@ -24,14 +24,16 @@ struct RecorderView: View {
             content
                 .padding(28)
         }
-        .frame(width: 560, height: 510)
+        .frame(width: 560, height: 584)
         .preferredColorScheme(.dark)
         .onAppear {
             if model.permissionGranted {
                 Task { await model.refreshBrowserWindows() }
+                model.captureModeDidChange(model.mode)
             }
         }
         .onChange(of: model.mode) { _, newValue in
+            model.captureModeDidChange(newValue)
             if newValue == .browser, model.permissionGranted {
                 Task { await model.refreshBrowserWindows() }
             }
@@ -117,24 +119,32 @@ struct RecorderView: View {
                     .frame(maxWidth: 390)
                     .lineSpacing(4)
 
-                Button("允许屏幕录制") {
-                    model.requestPermission()
-                }
-                .buttonStyle(SnapPrimaryButtonStyle())
-                .frame(width: 210)
-
                 if model.hasRequestedPermission {
+                    Button("打开系统设置") {
+                        model.openScreenRecordingSettings()
+                    }
+                    .buttonStyle(SnapPrimaryButtonStyle())
+                    .frame(width: 210)
+
                     VStack(spacing: 5) {
-                        Button("打开系统设置") {
-                            model.openScreenRecordingSettings()
+                        Button("我已开启，重新检查") {
+                            model.recheckPermission()
                         }
                         .buttonStyle(.link)
                         .foregroundStyle(.secondary)
 
-                        Text("已经允许但仍未生效时，请退出并重新打开 Snap Recorder。")
+                        Text("在系统设置中开启后，请完全退出并重新打开当前这份 Snap Recorder；不需要反复点击授权。")
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 380)
                     }
+                } else {
+                    Button("允许屏幕录制") {
+                        model.requestPermission()
+                    }
+                    .buttonStyle(SnapPrimaryButtonStyle())
+                    .frame(width: 210)
                 }
             }
 
@@ -164,12 +174,22 @@ struct RecorderView: View {
             Button {
                 model.startRecording()
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "record.circle")
-                    Text("开始录制")
+                ZStack {
+                    HStack(spacing: 8) {
+                        Image(systemName: "record.circle")
+                        Text("开始录制")
+                    }
+                    HStack {
+                        Spacer()
+                        Text("⌘R")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.62))
+                            .padding(.trailing, 13)
+                    }
                 }
             }
             .buttonStyle(SnapPrimaryButtonStyle())
+            .keyboardShortcut("r", modifiers: .command)
             .disabled(!model.canStartRecording)
         }
     }
@@ -240,6 +260,36 @@ struct RecorderView: View {
                 }
             }
             .frame(height: 36)
+
+            Divider()
+                .overlay(Color.white.opacity(0.08))
+
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color.purple.opacity(model.capturesMouseEffects ? 0.28 : 0.12))
+                        .frame(width: 18, height: 18)
+                        .blur(radius: 3)
+                    Circle()
+                        .fill(Color.white.opacity(model.capturesMouseEffects ? 0.94 : 0.46))
+                        .frame(width: 7, height: 7)
+                }
+                .frame(width: 20, height: 20)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("录制鼠标")
+                        .font(.system(size: 13, weight: .medium))
+                    Text(model.capturesMouseEffects ? "圆形光点跟随，点击时扩散" : "成片不显示鼠标")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Toggle("", isOn: $model.capturesMouseEffects)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
+            .frame(height: 36)
         }
         .padding(.horizontal, 13)
         .background(cardBackground)
@@ -253,103 +303,293 @@ struct RecorderView: View {
 
     @ViewBuilder
     private var sourceCard: some View {
-        if model.mode == .browser {
-            VStack(alignment: .leading, spacing: 13) {
-                HStack {
-                    Label("选择一个浏览器窗口", systemImage: "safari.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                    Spacer()
-                    Button {
-                        Task { await model.refreshBrowserWindows() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("刷新窗口")
-                }
+        switch model.mode {
+        case .browser:
+            browserSourceCard
+        case .display:
+            displaySourceCard
+        case .region:
+            regionSourceCard
+        }
+    }
 
-                if model.isLoadingWindows {
-                    HStack(spacing: 10) {
-                        ProgressView().controlSize(.small)
-                        Text("正在读取浏览器窗口…")
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-                } else if let browserListError = model.browserListError {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("读取浏览器窗口失败", systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.orange)
-                        Text(browserListError)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-                } else if model.browserWindows.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("没有找到浏览器窗口")
-                            .font(.system(size: 14, weight: .medium))
-                        Text("请先打开浏览器窗口，然后点右上角刷新。")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-                } else {
-                    Picker("窗口", selection: $model.selectedBrowserWindowID) {
-                        ForEach(model.browserWindows) { window in
-                            Text("\(window.applicationName) · \(window.displayTitle)")
-                                .tag(Optional(window.id))
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-
-                    if let note = model.browserSelectionNote {
-                        Label(note, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.orange)
-                    } else {
-                        Text("原生像素优先，最高约 4K；成片只包含这个窗口。")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                    }
+    private var browserSourceCard: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack {
+                Label("选择一个浏览器窗口", systemImage: "safari.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button {
+                    Task { await model.refreshBrowserWindows() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("刷新窗口")
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
-            .background(cardBackground)
-        } else {
-            HStack(spacing: 16) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.08))
-                    Image(systemName: "display")
-                        .font(.system(size: 28, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.9))
-                }
-                .frame(width: 66, height: 58)
 
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("当前主屏幕")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text("保留原生像素，最高约 4K 清晰度")
+            if model.isLoadingWindows {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("正在读取浏览器窗口…")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+            } else if let browserListError = model.browserListError {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("读取浏览器窗口失败", systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.orange)
+                    Text(browserListError)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+            } else if model.browserWindows.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("没有找到浏览器窗口")
+                        .font(.system(size: 14, weight: .medium))
+                    Text("请先打开浏览器窗口，然后点右上角刷新。")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                    Text("Snap Recorder 的窗口和录制控制条不会进入成片")
+                }
+                .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+            } else {
+                Picker("窗口", selection: $model.selectedBrowserWindowID) {
+                    ForEach(model.browserWindows) { window in
+                        Text("\(window.applicationName) · \(window.displayTitle)")
+                            .tag(Optional(window.id))
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+
+                if let note = model.browserSelectionNote {
+                    Label(note, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("原生像素优先，最高约 4K；成片只包含这个窗口。")
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                 }
-                Spacer()
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 19))
-                    .foregroundStyle(.green)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, minHeight: 118)
-            .background(cardBackground)
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
+        .background(cardBackground)
+    }
+
+    private var displaySourceCard: some View {
+        HStack(spacing: 16) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+                Image(systemName: "display")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .frame(width: 66, height: 58)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("当前主屏幕")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("保留原生像素，最高约 4K 清晰度")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Text("Snap Recorder 的窗口和录制控制条不会进入成片")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 19))
+                .foregroundStyle(.green)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 118)
+        .background(cardBackground)
+    }
+
+    private var regionSourceCard: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Label("画面比例", systemImage: "crop")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Text(
+                    model.isRegionSelectionLocked
+                        ? "浮层已锁定 · ⌘E 调整"
+                        : "拖动虚线框 · ⌘E 锁定"
+                )
+                    .font(.system(size: 10))
+                    .foregroundStyle(
+                        model.isRegionSelectionLocked
+                            ? AnyShapeStyle(Color.green.opacity(0.82))
+                            : AnyShapeStyle(.tertiary)
+                    )
+            }
+
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4),
+                spacing: 8
+            ) {
+                ForEach(CaptureAspectRatio.allCases) { aspectRatio in
+                    Button {
+                        model.selectRegionAspectRatio(aspectRatio)
+                    } label: {
+                        HStack(spacing: 7) {
+                            CaptureAspectGlyph(aspectRatio: aspectRatio)
+                                .frame(width: 26, height: 18)
+                            Text(aspectRatio.title)
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 30)
+                    }
+                    .buttonStyle(
+                        SnapAspectRatioButtonStyle(
+                            isSelected: model.selectedRegionAspectRatio == aspectRatio
+                        )
+                    )
+                }
+            }
+
+            Divider().overlay(Color.white.opacity(0.08))
+
+            captureCornerStyleOptionRow
+
+            Divider().overlay(Color.white.opacity(0.08))
+
+            regionOptionRow(
+                title: "柔和圆角暗角",
+                detail: "四角轻微渐隐，让画面更柔和",
+                systemImage: "circle.lefthalf.filled",
+                isOn: $model.appliesSoftCornerVignette,
+                isEnabled: model.captureRegionCornerStyle == .rounded
+            )
+
+            Divider().overlay(Color.white.opacity(0.08))
+
+            focusMaskOptionRow
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(cardBackground)
+    }
+
+    private func regionOptionRow(
+        title: String,
+        detail: String,
+        systemImage: String,
+        isOn: Binding<Bool>,
+        isEnabled: Bool = true
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 18)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                Text(detail)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .disabled(!isEnabled)
+        }
+        .frame(height: 31)
+        .opacity(isEnabled ? 1 : 0.52)
+    }
+
+    private var captureCornerStyleOptionRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "rectangle.roundedtop")
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 18)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("录制框边角")
+                    .font(.system(size: 12, weight: .medium))
+                Text("默认圆角，也可保留方角")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 6)
+            Picker(
+                "录制框边角",
+                selection: Binding(
+                    get: { model.captureRegionCornerStyle },
+                    set: { model.setCaptureRegionCornerStyle($0) }
+                )
+            ) {
+                ForEach(FocusMaskCornerStyle.allCases) { style in
+                    Text(style.title).tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.mini)
+            .frame(width: 88)
+        }
+        .frame(height: 31)
+    }
+
+    private var focusMaskOptionRow: some View {
+        let isAvailable = model.selectedRegionAspectRatio != .custom
+        return HStack(spacing: 10) {
+            Image(systemName: "viewfinder")
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 18)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("聚焦蒙版")
+                    .font(.system(size: 12, weight: .medium))
+                Text(isAvailable ? "框内原色，框外单色并压暗 50%" : "选择固定比例后可用")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 6)
+
+            if model.isFocusMaskEnabled {
+                Picker(
+                    "蒙版边角",
+                    selection: Binding(
+                        get: { model.focusMaskCornerStyle },
+                        set: { model.setFocusMaskCornerStyle($0) }
+                    )
+                ) {
+                    ForEach(FocusMaskCornerStyle.allCases) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.mini)
+                .frame(width: 88)
+            }
+
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { model.isFocusMaskEnabled },
+                    set: { model.setFocusMaskEnabled($0) }
+                )
+            )
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .disabled(!isAvailable)
+        }
+        .frame(height: 31)
+        .opacity(isAvailable ? 1 : 0.52)
     }
 
     private var exportingView: some View {
@@ -635,6 +875,69 @@ struct RecorderView: View {
     }
 }
 
+private struct CaptureAspectGlyph: View {
+    let aspectRatio: CaptureAspectRatio
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                if let ratio = aspectRatio.fixedValue {
+                    let maximumWidth = proxy.size.width - 2
+                    let maximumHeight = proxy.size.height - 2
+                    let width = min(maximumWidth, maximumHeight * ratio)
+                    let height = min(maximumHeight, maximumWidth / ratio)
+                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                        .stroke(Color.white.opacity(0.86), lineWidth: 1.35)
+                        .frame(width: width, height: height)
+                } else {
+                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                        .stroke(Color.white.opacity(0.72), style: StrokeStyle(lineWidth: 1.2, dash: [3, 2]))
+                        .frame(width: 23, height: 15)
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+private struct SnapAspectRatioButtonStyle: ButtonStyle {
+    let isSelected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white)
+            .background {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(
+                        isSelected
+                            ? AnyShapeStyle(
+                                LinearGradient(
+                                    colors: [
+                                        Color(red: 0.91, green: 0.25, blue: 0.43).opacity(0.72),
+                                        Color.purple.opacity(0.72)
+                                    ],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            : AnyShapeStyle(Color.white.opacity(0.065))
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .stroke(
+                                isSelected ? Color.white.opacity(0.22) : Color.white.opacity(0.08),
+                                lineWidth: 1
+                            )
+                    }
+            }
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+    }
+}
+
 struct CountdownView: View {
     let number: Int
 
@@ -693,7 +996,11 @@ struct RecordingHUDView: View {
                     .background(Circle().fill(Color.red))
             }
             .buttonStyle(.plain)
-            .help("结束录制")
+            .help("结束录制（Esc）")
+
+            Text("esc")
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 17)
         .frame(width: 274, height: 54)

@@ -16,6 +16,7 @@
 
 - 浏览器：`SCContentFilter(desktopIndependentWindow:)`，采集源只包含一个窗口。
 - 整屏：`SCContentFilter(display:excludingApplications:exceptingWindows:)`，排除 Snap Recorder 自己的进程。
+- 局部：同样使用排除自身进程的显示器过滤器，并把屏幕选区换算为 `SCStreamConfiguration.sourceRect`；不是录完整屏幕后再裁切。
 - 倒计时和录制 HUD 的 `NSWindow.sharingType` 为 `.none`。
 - 正式采集在倒计时面板隐藏后才启动。
 
@@ -42,10 +43,24 @@ ScreenCaptureKit 在暂停期间保持采集，但 writer 丢弃样本。继续�
 
 录制阶段统一以最高画质写入恢复目录，H.264 使用 High Profile、CABAC、Rec.709 与 60 fps，按输出像素使用约 24–68 Mbps。结束后选择“最高画质”会直接提交原片，不重新编码；选择“清晰小体积”会保持同分辨率，将视频目标码率设为原片的约 1/3，并允许帧重排以提高压缩效率。电脑声音轨直接透传。码率是编码目标而非最终文件大小承诺，静态屏幕内容的实际平均码率可能更低，音频轨也会影响总大小。
 
+## 局部选区与聚焦蒙版
+
+局部选区窗口使用 AppKit 透明 `NSPanel`，固定比例只开放四角等比缩放，自定义比例同时开放边缘与四角缩放。选区使用主显示器逻辑坐标，转换为以左上角为原点的 ScreenCaptureKit point 坐标；输出尺寸再按 `pointPixelScale` 转为 Retina 像素并限制在 3840×2160 内。
+
+选区面板属于 Snap Recorder 自身且 `sharingType` 为 `.none`，采集过滤器也排除自身进程，因此虚线框、灰色蒙版框和 50% 预览遮罩不会进入视频。大选区与小蒙版都提供方角 / 圆角切换并默认圆角。聚焦效果由 Core Image 写入成片：蒙版外先降为单色，再降低一档曝光（线性亮度减半）；蒙版内保留原图。圆角使用随输出尺寸缩放、但受上下限约束的 macOS 风格圆角；大选区还可使用扩展圆角遮罩与高斯羽化形成柔和暗角。
+
+`⌘E` 通过切换选区 `NSPanel.ignoresMouseEvents` 实现可调整与点击穿透状态。全局热键使用 Carbon `RegisterEventHotKey` 按状态临时注册：局部准备态注册 `⌘E`，浮层锁定后额外注册 `⌘R`，录制或暂停时只注册 `Esc`。离开对应状态立即注销，避免常驻抢占浏览器刷新等系统惯用键。
+
+## 鼠标光点与点击波纹
+
+三种模式都把 `SCStreamConfiguration.showsCursor` 设为 `false`，因此系统箭头永远不会被 ScreenCaptureKit 直接写进画面。用户开启“录制鼠标”时，录制器在每个视频帧上轮询 `CGEvent` 的全局位置与 `CGEventSource.buttonState` 的公开会话按键状态，把坐标映射到浏览器窗口、显示器或局部选区，再由 Core Image 绘制白色圆形光点、紫色柔光和 0.65 秒点击扩散波纹。关闭选项时不创建跟踪器，也不增加任何鼠标图层。
+
+该实现不安装事件注入或键鼠监听，不要求辅助功能和输入监控权限。暂停期间不更新点击动画，继续录制时会同步当前按键状态并清空旧波纹，避免把暂停期间的点击误写到成片。
+
 ## 恢复
 
 录制先以最高画质写到 `~/Library/Application Support/SnapRecorder/Recovery/`。封装成功后等待画质选择；需要人声时同时等待人声导出方式。所有所选文件成功写入下载目录后才删除临时原片，失败时保留源文件并允许重试。
 
 ## 权限
 
-屏幕、系统声音和麦克风权限由 macOS TCC 管理。人声默认关闭，只有用户主动开启时才请求麦克风权限。应用未启用沙盒，本地构建使用 ad-hoc 签名；公开分发建议使用 Developer ID 签名与公证。
+屏幕、系统声音和麦克风权限由 macOS TCC 管理。人声默认关闭，只有用户主动开启时才请求麦克风权限。应用未启用沙盒。本地构建使用 ad-hoc 签名，并显式固定 designated requirement，避免每次重新构建后因 CDHash 改变而被 TCC 识别成新的录屏应用；公开分发仍应使用 Developer ID 签名与公证。首次从旧签名迁移到稳定签名时，需要在“系统设置 → 隐私与安全性 → 屏幕与系统音频录制”中移除旧条目，并只对最终安装位置中的应用重新授权一次。

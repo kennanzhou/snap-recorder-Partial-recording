@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$ROOT/build/Snap Recorder.app"
 ICONSET_DIR="$ROOT/.build/SnapRecorderIcon.iconset"
 MASTER_ICON="$ROOT/.build/SnapRecorderIcon-1024.png"
+BUNDLE_IDENTIFIER="io.github.shuyan-5200.SnapRecorder"
+SIGNING_IDENTITY="${SNAPRECORDER_CODESIGN_IDENTITY:--}"
 
 swift build --package-path "$ROOT" -c release --arch arm64
 swift build --package-path "$ROOT" -c release --arch x86_64
@@ -30,6 +32,25 @@ for SIZE in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET_DIR" -o "$APP_DIR/Contents/Resources/SnapRecorderIcon.icns"
 
-codesign --force --deep --sign - "$APP_DIR"
+if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+    # A plain ad-hoc signature uses the executable CDHash as its designated
+    # requirement. That hash changes after every build, so macOS TCC treats
+    # each local build as a different screen-recording app. Keep the local
+    # designated requirement stable; signed release builds should provide a
+    # real identity through SNAPRECORDER_CODESIGN_IDENTITY.
+    codesign \
+        --force \
+        --deep \
+        --sign - \
+        --requirements "=designated => identifier \"$BUNDLE_IDENTIFIER\"" \
+        "$APP_DIR"
+else
+    codesign \
+        --force \
+        --deep \
+        --options runtime \
+        --sign "$SIGNING_IDENTITY" \
+        "$APP_DIR"
+fi
 
 echo "$APP_DIR"

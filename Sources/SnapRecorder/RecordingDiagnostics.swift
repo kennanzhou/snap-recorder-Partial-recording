@@ -8,6 +8,8 @@ import Foundation
 enum RecordingDiagnostics {
     static func run() async throws -> String {
         try validateCaptureSizing()
+        try validateRegionEffects()
+        try validateMouseEffects()
 
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("SnapRecorder-self-test-\(UUID().uuidString).mp4")
@@ -598,6 +600,195 @@ enum RecordingDiagnostics {
                 "高清输出自检异常（整屏 \(displaySize)）。"
             )
         }
+
+        for aspectRatio in CaptureAspectRatio.allCases {
+            guard let fixedValue = aspectRatio.fixedValue else { continue }
+            let source = CGSize(width: 1_200, height: 1_200 / fixedValue)
+            let output = CaptureSizing.regionOutputSize(source: source)
+            guard isEven(output.width),
+                  isEven(output.height),
+                  relativeDifference(output.width / output.height, fixedValue) < 0.01 else {
+                throw CaptureError.couldNotFinishWriter(
+                    "局部录制比例自检异常（\(aspectRatio.title)，输出 \(output)）。"
+                )
+            }
+        }
+    }
+
+    private static func validateRegionEffects() throws {
+        let size = CGSize(width: 240, height: 160)
+        let source = try makeSolidPixelBuffer(
+            size: size,
+            color: CIColor(red: 0.82, green: 0.22, blue: 0.08)
+        )
+        let focusRect = CGRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5)
+
+        let roundedDestination = try makeSolidPixelBuffer(size: size, color: .black)
+        FrameCompositor(
+            mode: .region,
+            outputSize: size,
+            focusMask: CaptureFocusMask(
+                normalizedRect: focusRect,
+                cornerStyle: .rounded
+            )
+        ).render(source: source, into: roundedDestination)
+
+        let squareDestination = try makeSolidPixelBuffer(size: size, color: .black)
+        FrameCompositor(
+            mode: .region,
+            outputSize: size,
+            focusMask: CaptureFocusMask(
+                normalizedRect: focusRect,
+                cornerStyle: .square
+            )
+        ).render(source: source, into: squareDestination)
+
+        let vignetteDestination = try makeSolidPixelBuffer(size: size, color: .black)
+        FrameCompositor(
+            mode: .region,
+            outputSize: size,
+            captureCornerStyle: .rounded,
+            appliesSoftCornerVignette: true
+        ).render(source: source, into: vignetteDestination)
+
+        let center = pixel(in: roundedDestination, x: 120, y: 80)
+        let outside = pixel(in: roundedDestination, x: 18, y: 80)
+        let roundedCorner = pixel(in: roundedDestination, x: 62, y: 42)
+        let squareCorner = pixel(in: squareDestination, x: 62, y: 42)
+        let vignetteCenter = pixel(in: vignetteDestination, x: 120, y: 80)
+        let vignetteCorner = pixel(in: vignetteDestination, x: 0, y: 0)
+
+        guard center.red > center.green * 2,
+              channelSpread(outside) < 10,
+              outside.brightness < center.red * 0.5,
+              outside.brightness > 20,
+              channelSpread(roundedCorner) < 16,
+              squareCorner.red > squareCorner.green * 2,
+              vignetteCorner.brightness < vignetteCenter.brightness * 0.8 else {
+            throw CaptureError.couldNotFinishWriter(
+                "局部录制效果自检异常（中心 \(center)，外部 \(outside)，圆角 \(roundedCorner)，方角 \(squareCorner)，暗角 \(vignetteCorner)/\(vignetteCenter)）。"
+            )
+        }
+    }
+
+    private static func validateMouseEffects() throws {
+        let size = CGSize(width: 240, height: 160)
+        let captureRect = CGRect(x: 320, y: 180, width: 1_200, height: 800)
+        guard MouseEffectTracker.normalizedPosition(
+            for: CGPoint(x: 620, y: 380),
+            in: captureRect
+        ) == CGPoint(x: 0.25, y: 0.25),
+              MouseEffectTracker.normalizedPosition(
+                  for: CGPoint(x: 100, y: 100),
+                  in: captureRect
+              ) == nil else {
+            throw CaptureError.couldNotFinishWriter("鼠标坐标映射自检异常。")
+        }
+
+        let source = try makeSolidPixelBuffer(
+            size: size,
+            color: CIColor(red: 0.04, green: 0.05, blue: 0.08)
+        )
+        let baseDestination = try makeSolidPixelBuffer(size: size, color: .black)
+        let cursorDestination = try makeSolidPixelBuffer(size: size, color: .black)
+        let clickDestination = try makeSolidPixelBuffer(size: size, color: .black)
+        let compositor = FrameCompositor(mode: .display, outputSize: size)
+
+        compositor.render(source: source, into: baseDestination)
+        compositor.render(
+            source: source,
+            into: cursorDestination,
+            mouseEffect: MouseEffectSnapshot(
+                normalizedCursorPosition: CGPoint(x: 0.5, y: 0.5),
+                clickEffect: nil
+            )
+        )
+        compositor.render(
+            source: source,
+            into: clickDestination,
+            mouseEffect: MouseEffectSnapshot(
+                normalizedCursorPosition: nil,
+                clickEffect: MouseClickEffect(
+                    normalizedPosition: CGPoint(x: 0.5, y: 0.5),
+                    progress: 0.5
+                )
+            )
+        )
+
+        let baseCenter = pixel(in: baseDestination, x: 120, y: 80)
+        let cursorCenter = pixel(in: cursorDestination, x: 120, y: 80)
+        let baseRing = pixel(in: baseDestination, x: 141, y: 80)
+        let clickRing = pixel(in: clickDestination, x: 141, y: 80)
+
+        guard cursorCenter.brightness > baseCenter.brightness * 4,
+              clickRing.red > baseRing.red * 1.5,
+              clickRing.red > clickRing.green else {
+            throw CaptureError.couldNotFinishWriter(
+                "鼠标光点效果自检异常（中心 \(cursorCenter)/\(baseCenter)，点击 \(clickRing)/\(baseRing)）。"
+            )
+        }
+    }
+
+    private struct PixelSample {
+        let red: CGFloat
+        let green: CGFloat
+        let blue: CGFloat
+
+        var brightness: CGFloat { (red + green + blue) / 3 }
+    }
+
+    private static func channelSpread(_ pixel: PixelSample) -> CGFloat {
+        max(pixel.red, max(pixel.green, pixel.blue))
+            - min(pixel.red, min(pixel.green, pixel.blue))
+    }
+
+    private static func makeSolidPixelBuffer(
+        size: CGSize,
+        color: CIColor
+    ) throws -> CVPixelBuffer {
+        var pixelBuffer: CVPixelBuffer?
+        let attributes: [CFString: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+            kCVPixelBufferIOSurfacePropertiesKey: [:]
+        ]
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            Int(size.width),
+            Int(size.height),
+            kCVPixelFormatType_32BGRA,
+            attributes as CFDictionary,
+            &pixelBuffer
+        )
+        guard status == kCVReturnSuccess, let pixelBuffer else {
+            throw CaptureError.couldNotStartWriter(
+                "自检无法创建局部录制画面缓冲区（状态 \(status)）。"
+            )
+        }
+        CIContext(options: [.useSoftwareRenderer: false]).render(
+            CIImage(color: color).cropped(to: CGRect(origin: .zero, size: size)),
+            to: pixelBuffer,
+            bounds: CGRect(origin: .zero, size: size),
+            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)
+        )
+        return pixelBuffer
+    }
+
+    private static func pixel(in buffer: CVPixelBuffer, x: Int, y: Int) -> PixelSample {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let baseAddress = CVPixelBufferGetBaseAddress(buffer) else {
+            return PixelSample(red: 0, green: 0, blue: 0)
+        }
+        let safeX = min(max(x, 0), CVPixelBufferGetWidth(buffer) - 1)
+        let safeY = min(max(y, 0), CVPixelBufferGetHeight(buffer) - 1)
+        let offset = safeY * CVPixelBufferGetBytesPerRow(buffer) + safeX * 4
+        let bytes = baseAddress.assumingMemoryBound(to: UInt8.self)
+        return PixelSample(
+            red: CGFloat(bytes[offset + 2]),
+            green: CGFloat(bytes[offset + 1]),
+            blue: CGFloat(bytes[offset])
+        )
     }
 
     private static func isEven(_ value: CGFloat) -> Bool {
