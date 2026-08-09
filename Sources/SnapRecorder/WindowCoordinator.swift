@@ -10,6 +10,8 @@ final class WindowCoordinator: NSObject {
     private var statusItem: NSStatusItem?
     private var lastExternalApplication: NSRunningApplication?
     private var activationObserver: NSObjectProtocol?
+    private let regionOverlay = CaptureRegionOverlayController()
+    private var shortcutController: GlobalShortcutController?
 
     init(initialExternalApplication: NSRunningApplication?) {
         lastExternalApplication = initialExternalApplication
@@ -39,6 +41,17 @@ final class WindowCoordinator: NSObject {
 
     func attach(model: AppModel) {
         self.model = model
+        shortcutController = GlobalShortcutController(
+            toggleOverlay: { [weak model] in
+                Task { @MainActor in model?.toggleRegionSelectionLock() }
+            },
+            startRecording: { [weak model] in
+                Task { @MainActor in model?.startRecordingFromShortcut() }
+            },
+            stopRecording: { [weak model] in
+                Task { @MainActor in model?.stopRecording() }
+            }
+        )
         createStatusItemIfNeeded()
     }
 
@@ -71,8 +84,79 @@ final class WindowCoordinator: NSObject {
         }
 
         statusItem?.isVisible = true
+        window.level = model.mode == .region ? .screenSaver : .normal
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @discardableResult
+    func showRegionSelection(
+        aspectRatio: CaptureAspectRatio,
+        captureCornerStyle: FocusMaskCornerStyle,
+        focusMaskEnabled: Bool,
+        focusMaskCornerStyle: FocusMaskCornerStyle,
+        interactionLocked: Bool,
+        selectionChanged: @escaping (CaptureRegion) -> Void,
+        focusMaskChanged: @escaping (CaptureFocusMask?) -> Void
+    ) -> CaptureRegion? {
+        mainWindow?.level = .screenSaver
+        return regionOverlay.show(
+            aspectRatio: aspectRatio,
+            captureCornerStyle: captureCornerStyle,
+            focusMaskEnabled: focusMaskEnabled,
+            focusMaskCornerStyle: focusMaskCornerStyle,
+            interactionLocked: interactionLocked,
+            selectionChanged: selectionChanged,
+            focusMaskChanged: focusMaskChanged
+        )
+    }
+
+    @discardableResult
+    func updateRegionAspectRatio(_ aspectRatio: CaptureAspectRatio) -> CaptureRegion? {
+        regionOverlay.update(aspectRatio: aspectRatio)
+    }
+
+    @discardableResult
+    func setRegionFocusMaskEnabled(_ enabled: Bool) -> CaptureFocusMask? {
+        regionOverlay.setFocusMaskEnabled(enabled)
+    }
+
+    @discardableResult
+    func setRegionFocusMaskCornerStyle(_ style: FocusMaskCornerStyle) -> CaptureFocusMask? {
+        regionOverlay.setFocusMaskCornerStyle(style)
+    }
+
+    func setRegionCaptureCornerStyle(_ style: FocusMaskCornerStyle) {
+        regionOverlay.setCaptureCornerStyle(style)
+    }
+
+    @discardableResult
+    func setRegionSelectionLocked(_ locked: Bool) -> Bool {
+        regionOverlay.setInteractionLocked(locked)
+    }
+
+    @discardableResult
+    func toggleRegionSelectionLocked() -> Bool {
+        regionOverlay.toggleInteractionLocked()
+    }
+
+    func updateGlobalShortcuts(
+        isRegionPreparing: Bool,
+        isRegionLocked: Bool,
+        isRecording: Bool
+    ) {
+        shortcutController?.update(
+            isRegionPreparing: isRegionPreparing,
+            isRegionLocked: isRegionLocked,
+            isRecording: isRecording
+        )
+    }
+
+    func hideRegionSelection(resetMainWindowLevel: Bool = false) {
+        regionOverlay.hide()
+        if resetMainWindowLevel {
+            mainWindow?.level = .normal
+        }
     }
 
     func prepareForCountdown(targetProcessID: pid_t?) {

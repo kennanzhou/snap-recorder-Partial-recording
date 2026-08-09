@@ -132,6 +132,8 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
         let filter: SCContentFilter
         let streamSize: CGSize
         let outputSize: CGSize
+        let sourceRect: CGRect?
+        let mouseCaptureRect: CGRect
 
         switch request.mode {
         case .browser:
@@ -150,6 +152,8 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
             let layout = CaptureSizing.browserLayout(source: sourcePixels)
             streamSize = layout.streamSize
             outputSize = layout.outputSize
+            sourceRect = nil
+            mouseCaptureRect = window.frame
 
         case .display:
             let mainDisplayID = CGMainDisplayID()
@@ -177,6 +181,46 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
                 allowUpscale: false
             )
             streamSize = outputSize
+            sourceRect = nil
+            mouseCaptureRect = display.frame
+
+        case .region:
+            guard let region = request.region else {
+                throw CaptureError.noCaptureRegion
+            }
+            guard let display = content.displays.first(where: {
+                $0.displayID == region.displayID
+            }) else {
+                throw CaptureError.captureRegionUnavailable
+            }
+
+            let ownApplication = content.applications.first {
+                $0.processID == ProcessInfo.processInfo.processIdentifier
+            }
+            filter = SCContentFilter(
+                display: display,
+                excludingApplications: ownApplication.map { [$0] } ?? [],
+                exceptingWindows: []
+            )
+
+            let displayBounds = CGRect(origin: .zero, size: display.frame.size)
+            let selectedRect = region.sourceRect.intersection(displayBounds).integral
+            guard selectedRect.width >= 2, selectedRect.height >= 2 else {
+                throw CaptureError.captureRegionUnavailable
+            }
+            sourceRect = selectedRect
+            let sourcePixels = CGSize(
+                width: selectedRect.width * CGFloat(filter.pointPixelScale),
+                height: selectedRect.height * CGFloat(filter.pointPixelScale)
+            )
+            outputSize = CaptureSizing.regionOutputSize(source: sourcePixels)
+            streamSize = outputSize
+            mouseCaptureRect = CGRect(
+                x: display.frame.minX + selectedRect.minX,
+                y: display.frame.minY + selectedRect.minY,
+                width: selectedRect.width,
+                height: selectedRect.height
+            )
         }
 
         let configuration = SCStreamConfiguration()
@@ -187,7 +231,9 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.scalesToFit = true
         configuration.preservesAspectRatio = true
-        configuration.showsCursor = true
+        // The system arrow is always hidden. When enabled, RecordingWriter
+        // draws Snap Recorder's own circular pointer and click ripple.
+        configuration.showsCursor = false
         configuration.capturesAudio = request.capturesSystemAudio
         configuration.sampleRate = 48_000
         configuration.channelCount = 2
@@ -195,6 +241,10 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
         configuration.colorSpaceName = CGColorSpace.sRGB as CFString
         configuration.shouldBeOpaque = true
         configuration.captureResolution = .best
+        if let sourceRect {
+            configuration.sourceRect = sourceRect
+            configuration.destinationRect = CGRect(origin: .zero, size: streamSize)
+        }
 
         if #available(macOS 15.0, *), request.capturesMicrophone {
             configuration.captureMicrophone = true
@@ -218,7 +268,11 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
                 mode: request.mode,
                 qualityPreset: .maximum,
                 capturesAudio: request.capturesSystemAudio,
-                microphoneOutputURL: microphoneURL
+                microphoneOutputURL: microphoneURL,
+                captureCornerStyle: request.captureCornerStyle,
+                appliesSoftCornerVignette: request.appliesSoftCornerVignette,
+                focusMask: request.focusMask,
+                mouseCaptureRect: request.capturesMouseEffects ? mouseCaptureRect : nil
             )
             createdWriter = writer
 

@@ -6,6 +6,7 @@ import VideoToolbox
 enum CaptureMode: String, CaseIterable, Identifiable {
     case browser
     case display
+    case region
 
     var id: String { rawValue }
 
@@ -13,6 +14,43 @@ enum CaptureMode: String, CaseIterable, Identifiable {
         switch self {
         case .browser: "浏览器窗口"
         case .display: "整个屏幕"
+        case .region: "局部录像"
+        }
+    }
+}
+
+enum CaptureAspectRatio: String, CaseIterable, Identifiable {
+    case widescreen
+    case portrait
+    case standard
+    case portraitStandard
+    case ultrawide
+    case square
+    case custom
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .widescreen: "16:9"
+        case .portrait: "9:16"
+        case .standard: "4:3"
+        case .portraitStandard: "3:4"
+        case .ultrawide: "21:9"
+        case .square: "1:1"
+        case .custom: "自定义"
+        }
+    }
+
+    var fixedValue: CGFloat? {
+        switch self {
+        case .widescreen: 16 / 9
+        case .portrait: 9 / 16
+        case .standard: 4 / 3
+        case .portraitStandard: 3 / 4
+        case .ultrawide: 21 / 9
+        case .square: 1
+        case .custom: nil
         }
     }
 }
@@ -84,9 +122,53 @@ struct BrowserWindowInfo: Identifiable, Equatable {
     }
 }
 
+struct CaptureRegion: Equatable {
+    let displayID: CGDirectDisplayID
+    /// ScreenCaptureKit display-local coordinates in points, with a top-left origin.
+    let sourceRect: CGRect
+}
+
+enum FocusMaskCornerStyle: String, CaseIterable, Identifiable {
+    case square
+    case rounded
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .square: "方角"
+        case .rounded: "圆角"
+        }
+    }
+}
+
+struct CaptureFocusMask: Equatable {
+    /// Unit coordinates inside the selected capture region, with a bottom-left origin.
+    let normalizedRect: CGRect
+    let cornerStyle: FocusMaskCornerStyle
+}
+
+struct MouseClickEffect: Equatable {
+    /// Unit coordinates inside the captured source, with a top-left origin.
+    let normalizedPosition: CGPoint
+    /// A value from 0 (click began) through 1 (ripple finished).
+    let progress: CGFloat
+}
+
+struct MouseEffectSnapshot: Equatable {
+    /// Unit coordinates inside the captured source, with a top-left origin.
+    let normalizedCursorPosition: CGPoint?
+    let clickEffect: MouseClickEffect?
+}
+
 struct CaptureRequest {
     let mode: CaptureMode
     let browserWindowID: CGWindowID?
+    let region: CaptureRegion?
+    let focusMask: CaptureFocusMask?
+    let captureCornerStyle: FocusMaskCornerStyle
+    let appliesSoftCornerVignette: Bool
+    let capturesMouseEffects: Bool
     let capturesSystemAudio: Bool
     let capturesMicrophone: Bool
     let outputURL: URL
@@ -97,6 +179,8 @@ enum CaptureError: LocalizedError {
     case noDisplay
     case noBrowserWindow
     case browserWindowUnavailable
+    case noCaptureRegion
+    case captureRegionUnavailable
     case noVideoFrames
     case microphoneRequiresNewerSystem
     case microphonePermissionRequired
@@ -118,6 +202,10 @@ enum CaptureError: LocalizedError {
             "请先打开一个浏览器窗口。"
         case .browserWindowUnavailable:
             "选中的浏览器窗口已经关闭或不可用。"
+        case .noCaptureRegion:
+            "请先在屏幕上调整好局部录制范围。"
+        case .captureRegionUnavailable:
+            "局部录制范围已不可用，请重新选择。"
         case .noVideoFrames:
             "没有收到可录制画面。录浏览器时请确认窗口没有最小化，然后重试。"
         case .microphoneRequiresNewerSystem:
@@ -165,6 +253,14 @@ enum CaptureSizing {
             outputSize: outputSize,
             streamSize: outputSize,
             contentRect: CGRect(origin: .zero, size: outputSize)
+        )
+    }
+
+    static func regionOutputSize(source: CGSize) -> CGSize {
+        fit(
+            source: source,
+            inside: maximumHighDefinitionOutputSize,
+            allowUpscale: false
         )
     }
 

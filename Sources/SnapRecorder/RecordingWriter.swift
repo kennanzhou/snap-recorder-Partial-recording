@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreGraphics
 import CoreMedia
 import CoreVideo
 import Foundation
@@ -11,6 +12,7 @@ final class RecordingWriter {
     private let microphoneInput: AVAssetWriterInput?
     private let pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor
     private let compositor: FrameCompositor
+    private let mouseEffectTracker: MouseEffectTracker?
 
     private var sessionStarted = false
     private var sessionStartTime = CMTime.invalid
@@ -28,7 +30,11 @@ final class RecordingWriter {
         mode: CaptureMode,
         qualityPreset: RecordingQualityPreset = .maximum,
         capturesAudio: Bool,
-        microphoneOutputURL: URL? = nil
+        microphoneOutputURL: URL? = nil,
+        captureCornerStyle: FocusMaskCornerStyle = .square,
+        appliesSoftCornerVignette: Bool = false,
+        focusMask: CaptureFocusMask? = nil,
+        mouseCaptureRect: CGRect? = nil
     ) throws {
         try? FileManager.default.removeItem(at: outputURL)
         assetWriter = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
@@ -83,8 +89,12 @@ final class RecordingWriter {
 
         compositor = FrameCompositor(
             mode: mode,
-            outputSize: outputSize
+            outputSize: outputSize,
+            captureCornerStyle: captureCornerStyle,
+            appliesSoftCornerVignette: appliesSoftCornerVignette,
+            focusMask: focusMask
         )
+        mouseEffectTracker = mouseCaptureRect.map(MouseEffectTracker.init(captureRect:))
 
         guard assetWriter.canAdd(videoInput) else {
             throw CaptureError.couldNotStartWriter("当前设备无法创建视频轨道。")
@@ -178,7 +188,11 @@ final class RecordingWriter {
             return false
         }
 
-        compositor.render(source: sourceBuffer, into: destination)
+        compositor.render(
+            source: sourceBuffer,
+            into: destination,
+            mouseEffect: mouseEffectTracker?.snapshot(at: presentationTime)
+        )
         if pixelBufferAdaptor.append(destination, withPresentationTime: presentationTime) {
             lastVideoTime = presentationTime
             return true
@@ -259,6 +273,7 @@ final class RecordingWriter {
         }
         pauseBeganAt = .invalid
         isPaused = false
+        mouseEffectTracker?.didResume()
     }
 
     func finish() async throws {

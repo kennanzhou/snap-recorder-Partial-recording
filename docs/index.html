@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Snap Recorder — 极简录屏，高清保存</title>
-  <meta name="description" content="面向 macOS 的极简高清录屏工具。浏览器或整个屏幕，本地处理，两档画质。" />
+  <meta name="description" content="面向 macOS 的极简高清录屏工具。浏览器、整个屏幕或自定义区域，本地处理，两档画质。" />
   <meta name="theme-color" content="#ffffff" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Snap Recorder — 极简录屏，高清保存" />
@@ -346,7 +346,7 @@
     }
     .modes-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, 1fr);
       gap: 16px;
     }
     .mode-card {
@@ -441,6 +441,23 @@
       height: 6px;
       border-radius: 0 0 4px 4px;
       background: var(--fg);
+    }
+    .mock-region {
+      width: 82%;
+      aspect-ratio: 16/10;
+      border: 2px dashed color-mix(in srgb, var(--accent) 70%, var(--fg));
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+      display: grid;
+      place-items: center;
+      box-shadow: 0 8px 24px color-mix(in srgb, var(--fg) 8%, transparent);
+    }
+    .mock-region::after {
+      content: "16:9";
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
     }
 
     /* —— Split feature —— */
@@ -870,7 +887,7 @@
 
         <div class="hero-visual" data-od-id="hero-visual">
           <div class="hero-frame">
-            <img src="images/snap-recorder-main.png" alt="Snap Recorder 主界面：整个屏幕、电脑声音与人声均已开启" width="1120" height="944" />
+            <img src="images/snap-recorder-main.png" alt="Snap Recorder 局部录像界面：比例、圆角、聚焦蒙版、声音与鼠标设置" width="1120" height="1172" />
           </div>
           <div class="hero-glow" aria-hidden="true"></div>
         </div>
@@ -957,8 +974,8 @@
     <section class="modes" id="modes" data-od-id="modes">
       <div class="wrap">
         <div class="section-head center">
-          <span class="kicker">两种模式</span>
-          <h2 data-od-id="modes-title">浏览器，或整个屏幕</h2>
+          <span class="kicker">三种模式</span>
+          <h2 data-od-id="modes-title">浏览器、整个屏幕，或局部构图</h2>
           <p>按场景选来源。浏览器不必最大化，只要没有最小化即可录制。</p>
         </div>
         <div class="modes-grid">
@@ -971,7 +988,7 @@
             </div>
             <div>
               <h3>浏览器</h3>
-              <p>只录选中的浏览器窗口，自动铺满画面并保留少量桌面背景。其他应用与窗口不会进入成片。</p>
+              <p>只录选中的浏览器窗口，按原始比例完整铺满画面。其他应用与窗口不会进入成片。</p>
             </div>
           </article>
           <article class="mode-card" data-od-id="mode-screen">
@@ -981,6 +998,15 @@
             <div>
               <h3>整个屏幕</h3>
               <p>录制当前主显示器，保持原始比例与原生像素。适合演示、教学与完整工作流记录。</p>
+            </div>
+          </article>
+          <article class="mode-card" data-od-id="mode-region">
+            <div class="mode-visual" aria-hidden="true">
+              <div class="mock-region"></div>
+            </div>
+            <div>
+              <h3>局部录像</h3>
+              <p>七种比例、圆角选区、聚焦蒙版与点击穿透浮层。用 ⌘E 锁定范围，再用 ⌘R 开始录制。</p>
             </div>
           </article>
         </div>
@@ -1089,7 +1115,7 @@
           </li>
           <li class="step" data-od-id="step-2">
             <h3>选择来源</h3>
-            <p>浏览器或整个屏幕，按需打开电脑声音与人声。</p>
+            <p>浏览器、整个屏幕或局部录像，按需打开电脑声音、人声与鼠标光点。</p>
           </li>
           <li class="step" data-od-id="step-3">
             <h3>录制</h3>
@@ -1116,6 +1142,7 @@
           <div class="spec-row"><dt>分辨率</dt><dd>原生像素优先，最高约 3840×2160</dd></div>
           <div class="spec-row"><dt>帧率</dt><dd>默认 60 fps 采集，实时硬件编码</dd></div>
           <div class="spec-row"><dt>音频</dt><dd>系统声 AAC 48 kHz / 192 kbps；人声 AAC-LC 48 kHz / 192 kbps；混合 256 kbps</dd></div>
+          <div class="spec-row"><dt>鼠标</dt><dd>可完全隐藏；开启时为圆形光点、柔和光晕与 0.65 秒点击扩散波纹</dd></div>
           <div class="spec-row"><dt>体积</dt><dd>App 约 2.2 MB · ZIP 约 1.4 MB</dd></div>
           <div class="spec-row"><dt>依赖</dt><dd>无第三方库 · SwiftUI / AppKit / ScreenCaptureKit / AVFoundation</dd></div>
           <div class="spec-row"><dt>许可</dt><dd>MIT License · 开源可自建</dd></div>
