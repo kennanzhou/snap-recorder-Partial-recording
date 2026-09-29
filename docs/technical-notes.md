@@ -18,6 +18,10 @@
 
 没有使用 `SCRecordingOutput`，因为当前链路需要统一处理输出尺寸与暂停 / 继续时间轴。
 
+## 应用图标
+
+正式图标源文件是 `assets/SnapRecorderIcon.svg`，网页副本是 `docs/images/snap-recorder-icon.svg`，两者必须字节一致。图标沿用“器物”系统的拉丝铝、石墨表盘与信号橙录制灯；`scripts/build-app.sh` 会把 SVG 渲染为 1024 像素母版，再生成 macOS 所需的 16–1024 像素 iconset 和 `SnapRecorderIcon.icns`。README、产品页导航、网页 favicon 与安装包均使用这套正式图形。
+
 ## 主窗口关闭与进程退出
 
 Snap Recorder 是单主窗口工具。空闲时关闭最后一个主窗口后，`applicationShouldTerminateAfterLastWindowClosed` 会结束应用，不再留下只有菜单栏图标的隐藏进程。倒计时、录制、待处理保存或正在导出时，`WindowCoordinator` 会把关闭动作转交给现有的退出保护流程，并保持主窗口可见，直到用户确认继续或取消；导出工作区仍使用自己的放弃确认。

@@ -2,6 +2,17 @@
 
 This document records reproducible project-level checks without retaining user recordings, window titles, personal paths, or private media.
 
+## v1.1.1 build 18: Instrument application icon
+
+2026-09-30. The application, README and product page now use the same Instrument icon: a brushed-aluminum body, recessed graphite dial, mechanical tick marks and the signal-orange recording lamp. Recording and export source behavior is unchanged from v1.1.0.
+
+- `assets/SnapRecorderIcon.svg` and `docs/images/snap-recorder-icon.svg` are byte-identical, valid SVG files. The source was visually checked at 1024, 128 and 32 pixels; the signal lamp and dial remain recognizable at the smallest size.
+- The build-generated `SnapRecorderIcon.icns` was extracted back into all required 16–1024 pixel iconset entries. A 128-pixel entry was visually checked and matches the adopted icon.
+- `swift build -c release`, `.build/release/SnapRecorder --self-test` and the self-test from the extracted Universal App passed. The Instrument specification passed all 63 offline checks.
+- The built and extracted Apps pass strict signature verification, contain `x86_64 arm64`, report 1.1.1 / build 18, and have byte-identical executables and icon resources.
+- The ZIP contains only the executable, Info.plist, icon and signature resources. It contains no recordings, audio, logs or test media.
+- Release candidate: `Snap-Recorder-v1.1.1-macOS-universal.zip`, 2,173,159 bytes; SHA-256 `2e55945d9f4ca12571fda78d41fa78310fcf6d098b773460eb44eb3df07896f7`.
+
 ## v1.1.0 build 17: instrument visual system and release candidate
 
 2026-09-30. The main panel, export workspace, countdown, recording HUD, camera settings and region overlay now share the adopted Instrument visual system. Recording and export behavior keep the existing state and model calls.
