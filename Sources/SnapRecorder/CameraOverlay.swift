@@ -93,6 +93,23 @@ struct CameraOverlaySettings: Equatable {
     func cornerRadius(for rect: CGRect) -> CGFloat {
         min(rect.width, rect.height) * (shape == .circle ? 0.5 : 0.22)
     }
+
+    /// 铝质边框宽度：边长的 3%，预览与成片按同一比例绘制。
+    static func frameWidth(for rect: CGRect) -> CGFloat {
+        max(1.5, min(rect.width, rect.height) * 0.03)
+    }
+
+    /// 边框外圈的深色细线，让铝框在浅色画面上也有轮廓。
+    static func hairlineWidth(for rect: CGRect) -> CGFloat {
+        max(0.75, min(rect.width, rect.height) * 0.004)
+    }
+}
+
+/// 人像铝框的配色：自上而下由铝亮过渡到铝暗，外圈 40% 深色细线。
+enum CameraFrameStyle {
+    static let top = CIColor(red: 0xE6 / 255.0, green: 0xE4 / 255.0, blue: 0xDF / 255.0)
+    static let bottom = CIColor(red: 0xC6 / 255.0, green: 0xC4 / 255.0, blue: 0xBE / 255.0)
+    static let hairline = CIColor(red: 0, green: 0, blue: 0, alpha: 0.4)
 }
 
 /// The camera image is composed directly into the video. The floating preview
@@ -101,8 +118,11 @@ final class CameraOverlayRenderer {
     private let settings: CameraOverlaySettings
     private let canvas: CGRect
     private let rect: CGRect
+    private let cameraRect: CGRect
     private let mask: CIImage
-    private let border: CIImage
+    private let cameraMask: CIImage
+    private let frame: CIImage
+    private let hairline: CIImage
     private let shadow: CIImage
 
     init(settings: CameraOverlaySettings, outputSize: CGSize) {
@@ -111,18 +131,30 @@ final class CameraOverlayRenderer {
         rect = settings.rect(in: outputSize)
         let radius = settings.cornerRadius(for: rect)
         mask = Self.roundedMask(rect: rect, radius: radius)
-        let lineWidth = max(0.75, rect.width * 0.005)
-        let innerMask = Self.roundedMask(
-            rect: rect.insetBy(dx: lineWidth, dy: lineWidth),
-            radius: max(0, radius - lineWidth)
+
+        // 铝框占据人像外缘，摄像头画面缩进一圈，圆角与外框同心。
+        let frameWidth = CameraOverlaySettings.frameWidth(for: rect)
+        cameraRect = rect.insetBy(dx: frameWidth, dy: frameWidth)
+        cameraMask = Self.roundedMask(rect: cameraRect, radius: max(0, radius - frameWidth))
+        frame = Self.verticalGradient(in: rect).cropped(to: canvas).applyingFilter(
+            "CIBlendWithAlphaMask",
+            parameters: [
+                kCIInputBackgroundImageKey: CIImage(color: .clear).cropped(to: canvas),
+                kCIInputMaskImageKey: mask
+            ]
         )
-        let borderMask = mask.applyingFilter(
-            "CISourceOutCompositing",
-            parameters: [kCIInputBackgroundImageKey: innerMask]
+
+        let hairlineWidth = CameraOverlaySettings.hairlineWidth(for: rect)
+        let outerMask = Self.roundedMask(
+            rect: rect.insetBy(dx: -hairlineWidth, dy: -hairlineWidth),
+            radius: radius + hairlineWidth
         )
-        border = Self.coloredLayer(
-            CIColor(red: 1, green: 1, blue: 1, alpha: 0.48),
-            mask: borderMask,
+        hairline = Self.coloredLayer(
+            CameraFrameStyle.hairline,
+            mask: outerMask.applyingFilter(
+                "CISourceOutCompositing",
+                parameters: [kCIInputBackgroundImageKey: mask]
+            ),
             canvas: canvas
         )
         let shadowMask = mask
@@ -148,22 +180,32 @@ final class CameraOverlayRenderer {
                 a: -1, b: 0, c: 0, d: 1, tx: camera.extent.width, ty: 0
             ))
         }
-        let scale = max(rect.width / camera.extent.width, rect.height / camera.extent.height)
+        let scale = max(cameraRect.width / camera.extent.width, cameraRect.height / camera.extent.height)
         camera = camera.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         camera = camera.transformed(by: CGAffineTransform(
-            translationX: rect.midX - camera.extent.midX,
-            y: rect.midY - camera.extent.midY
-        )).cropped(to: rect)
+            translationX: cameraRect.midX - camera.extent.midX,
+            y: cameraRect.midY - camera.extent.midY
+        )).cropped(to: cameraRect)
 
-        let withShadow = shadow.composited(over: background)
-        let withCamera = camera.applyingFilter(
+        let withFrame = frame.composited(over: hairline.composited(over: shadow.composited(over: background)))
+        return camera.applyingFilter(
             "CIBlendWithAlphaMask",
             parameters: [
-                kCIInputBackgroundImageKey: withShadow,
-                kCIInputMaskImageKey: mask
+                kCIInputBackgroundImageKey: withFrame,
+                kCIInputMaskImageKey: cameraMask
             ]
-        )
-        return border.composited(over: withCamera).cropped(to: canvas)
+        ).cropped(to: canvas)
+    }
+
+    private static func verticalGradient(in rect: CGRect) -> CIImage {
+        guard let filter = CIFilter(name: "CILinearGradient") else {
+            return CIImage(color: CameraFrameStyle.bottom)
+        }
+        filter.setValue(CIVector(x: rect.midX, y: rect.maxY), forKey: "inputPoint0")
+        filter.setValue(CIVector(x: rect.midX, y: rect.minY), forKey: "inputPoint1")
+        filter.setValue(CameraFrameStyle.top, forKey: "inputColor0")
+        filter.setValue(CameraFrameStyle.bottom, forKey: "inputColor1")
+        return filter.outputImage ?? CIImage(color: CameraFrameStyle.bottom)
     }
 
     private static func roundedMask(rect: CGRect, radius: CGFloat) -> CIImage {

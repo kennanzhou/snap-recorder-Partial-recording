@@ -2,109 +2,119 @@ import SwiftUI
 
 /// Settings stay inside the recorder window, so region-mode window levels cannot
 /// leave a separate popover behind the recorder or the capture overlay.
+/// 视觉为“器物”规范里的铝面板：位置用四颗带灯的键，形状、大小、自然修饰用互锁键。
 struct CameraOptionsView: View {
     @Binding var settings: CameraOverlaySettings
+    /// 面板在主面板内的最大高度；内容超出时中间部分滚动。
+    var maximumHeight: CGFloat = 560
     var dismiss: () -> Void
+
+    private let headHeight: CGFloat = 52
+    private let footHeight: CGFloat = 96
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Image(systemName: "video.fill")
-                    .foregroundStyle(.pink)
                 Text("人像样式")
                     .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Instrument.graphite)
                 Spacer()
                 Button(action: dismiss) {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .semibold))
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(KeyButtonStyle(kind: .icon))
                 .accessibilityLabel("关闭人像样式")
                 .keyboardShortcut(.cancelAction)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
+            .padding(.leading, 20)
+            .padding(.trailing, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+
+            Groove()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 15) {
+                VStack(alignment: .leading, spacing: 12) {
                     positionOptions
 
-                    VStack(alignment: .leading, spacing: 7) {
-                        sectionLabel("形状")
-                        Picker("人像形状", selection: $settings.shape) {
-                            ForEach(CameraOverlayShape.allCases) { Text($0.title).tag($0) }
+                    HStack(alignment: .top, spacing: 12) {
+                        field("形状") {
+                            InterlockKeys(
+                                accessibilityTitle: "人像形状",
+                                options: CameraOverlayShape.allCases,
+                                selection: settings.shape,
+                                title: \.title,
+                                fills: true
+                            ) { settings.shape = $0 }
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                        field("大小") {
+                            InterlockKeys(
+                                accessibilityTitle: "人像大小",
+                                options: CameraOverlaySize.allCases,
+                                selection: settings.size,
+                                title: \.title,
+                                fills: true
+                            ) { settings.size = $0 }
+                        }
                     }
 
-                    VStack(alignment: .leading, spacing: 7) {
-                        sectionLabel("大小")
-                        Picker("人像大小", selection: $settings.size) {
-                            ForEach(CameraOverlaySize.allCases) { Text($0.title).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                    HStack {
+                        Text("镜像")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Instrument.graphite)
+                        Spacer()
+                        SlideSwitch("镜像", isOn: $settings.mirrored)
                     }
+                    .frame(minHeight: 30)
 
-                    Toggle("镜像", isOn: $settings.mirrored)
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                        .font(.system(size: 12))
-
-                    Divider().overlay(.white.opacity(0.06))
-
-                    VStack(alignment: .leading, spacing: 9) {
-                        Text("自然修饰")
-                            .font(.system(size: 12, weight: .medium))
-                        Picker("自然修饰", selection: $settings.portrait.preset) {
-                            ForEach(CameraPortraitPreset.allCases) { preset in
-                                Text(preset.title).tag(preset)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                    field("自然修饰") {
+                        InterlockKeys(
+                            accessibilityTitle: "自然修饰",
+                            options: CameraPortraitPreset.allCases,
+                            selection: settings.portrait.preset,
+                            title: \.title,
+                            fills: true
+                        ) { settings.portrait.preset = $0 }
                         Text(settings.portrait.preset.subtitle)
-                            .font(.system(size: 10)).foregroundStyle(.secondary)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(Instrument.engrave)
+                            .padding(.top, 6)
                         Text("检测到正脸时生效；侧脸或遮挡时保留原图。")
-                            .font(.system(size: 10)).foregroundStyle(.secondary)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(Instrument.engrave)
+                            .padding(.top, 2)
                     }
                 }
                 .padding(.horizontal, 20)
+                .padding(.top, 12)
                 .padding(.bottom, 8)
             }
-            .scrollIndicators(.hidden)
-            .frame(height: 384)
+            .scrollIndicators(.automatic)
+            .frame(height: max(160, min(340, maximumHeight - headHeight - footHeight)))
+
+            Groove()
 
             VStack(spacing: 10) {
                 Text("调整会同步到预览和最终录像。")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Instrument.engrave)
                 Button("完成", action: dismiss)
-                    .buttonStyle(SnapPrimaryButtonStyle())
+                    .buttonStyle(KeyButtonStyle(kind: .dark))
                     .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 18)
+            .padding(.top, 10)
+            .padding(.bottom, 14)
         }
         .frame(width: 354)
-        .background(Color(red: 0.12, green: 0.12, blue: 0.17), in: RoundedRectangle(cornerRadius: 18))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                .allowsHitTesting(false)
-        }
-        .shadow(color: .black.opacity(0.35), radius: 25, y: 10)
+        .background { AluminumPanelBackground(cornerRadius: 10) }
+        .shadow(color: .black.opacity(0.35), radius: 30, y: 24)
         .onExitCommand(perform: dismiss)
     }
 
     private var positionOptions: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            sectionLabel("位置")
+        field("位置") {
             VStack(spacing: 6) {
                 HStack(spacing: 6) {
                     positionButton(.topLeft)
@@ -123,43 +133,31 @@ struct CameraOptionsView: View {
         return Button {
             settings.position = position
         } label: {
-            HStack(spacing: 9) {
+            HStack(spacing: 10) {
                 ZStack(alignment: alignment(for: position)) {
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(.white.opacity(0.25), lineWidth: 1)
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(selected ? Color.pink : .white.opacity(0.5))
-                        .frame(width: 9, height: 9)
-                        .padding(4)
+                    DisplayWindowBackground(cornerRadius: 2)
+                    LED(state: selected ? .lit : .off, size: 5)
+                        .padding(2)
                 }
-                .frame(width: 35, height: 25)
+                .frame(width: 30, height: 20)
                 Text(position.title)
-                    .font(.system(size: 11, weight: selected ? .semibold : .regular))
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 11)
-            .frame(maxWidth: .infinity, minHeight: 43)
-            .background(selected ? Color.pink.opacity(0.13) : Color.white.opacity(0.04),
-                        in: RoundedRectangle(cornerRadius: 9))
-            .overlay {
-                RoundedRectangle(cornerRadius: 9)
-                    .strokeBorder(selected ? Color.pink.opacity(0.55) : Color.white.opacity(0.06), lineWidth: 1)
-                    .allowsHitTesting(false)
-            }
-            // A plain button otherwise only hits its drawn subviews, leaving
-            // the empty center of the miniature screen and padding unreliable.
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(KeyButtonStyle(kind: .tile, isLatched: selected, fillsWidth: true))
         .accessibilityLabel("人像位置：\(position.title)")
         .accessibilityValue(selected ? "已选择" : "未选择")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private func sectionLabel(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
+    private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            EngravedLabel(title)
+                .padding(.bottom, 8)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func alignment(for position: CameraOverlayPosition) -> Alignment {

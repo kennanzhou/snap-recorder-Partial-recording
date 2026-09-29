@@ -145,10 +145,14 @@ enum CameraOverlayDiagnostics {
             cameraFrame: CameraFrame(pixelBuffer: camera, presentationTime: .zero)
         )
         let shadow = pixel(destination, at: CGPoint(x: rect.midX, y: rect.minY - rect.width * 0.045))
-        let border = pixel(destination, at: CGPoint(x: rect.minX + 0.3, y: rect.midY))
-        let inner = pixel(destination, at: CGPoint(x: rect.minX + 5, y: rect.midY))
-        guard shadow.red < 250, shadow.red > 165, border.red > inner.red + 15 else {
-            throw failure("人像阴影或细描边异常（阴影 \(shadow)，描边 \(border)，内部 \(inner)）。")
+        let frameWidth = CameraOverlaySettings.frameWidth(for: rect)
+        let frame = pixel(destination, at: CGPoint(x: rect.minX + frameWidth * 0.5, y: rect.midY))
+        let inner = pixel(destination, at: CGPoint(x: rect.minX + frameWidth + 3, y: rect.midY))
+        // 铝框为中性浅灰，摄像头画面缩进在框内。
+        let frameIsAluminum = (185...235).contains(frame.red) && (185...235).contains(frame.green)
+            && (180...232).contains(frame.blue) && abs(frame.red - frame.blue) < 16
+        guard shadow.red < 250, shadow.red > 165, frameIsAluminum, inner.blue > 230, inner.red < 20 else {
+            throw failure("人像阴影或铝质边框异常（阴影 \(shadow)，边框 \(frame)，内部 \(inner)）。")
         }
     }
 

@@ -6,13 +6,19 @@
   <p>
     <a href="https://shuyan-5200.github.io/snap-recorder/"><strong>产品介绍</strong></a>
     &nbsp; · &nbsp;
-    <a href="https://github.com/shuyan-5200/snap-recorder/releases/download/v1.0.0/Snap-Recorder-v1.0.0-macOS-universal.zip"><strong>下载 1.0.0</strong></a>
+    <a href="https://github.com/shuyan-5200/snap-recorder/releases/download/v1.1.0/Snap-Recorder-v1.1.0-macOS-universal.zip"><strong>下载 1.1.0</strong></a>
     &nbsp; · &nbsp;
     <a href="https://github.com/shuyan-5200/snap-recorder/releases/latest">版本与更新</a>
   </p>
-  <p><sub>macOS 14+ · Apple Silicon / Intel · ZIP 约 2.2 MB · MIT 开源</sub></p>
+  <p><sub>macOS 14+ · Apple Silicon / Intel · ZIP 约 2.3 MB · MIT 开源</sub></p>
   <p><sub>A lightweight, local-first macOS screen recorder with flexible video and audio exports.</sub></p>
 </div>
+
+<p align="center">
+  <img src="docs/images/snap-recorder-main.png" width="680" alt="Snap Recorder 1.1.0 器物界面的真实构建截图：局部录像比例、圆角、暗角、聚焦蒙版，以及电脑声音、人声、摄像头和录制鼠标开关">
+  <br>
+  <sub>1.1.0 正式界面 · 真实 macOS 构建 · 2× 高清截图</sub>
+</p>
 
 ## 关键亮点
 
@@ -20,14 +26,8 @@
 - **声音自由组合**：勾选视频、电脑声音、人声，再选择合并或分轨；也能只导出声音。
 - **五档视频大小**：高清、日常、小巧、极小、自定义。随手记录用极小，限制体积时直接填写 MB。
 - **一次录制，多次导出**：保存前命名，保存后可换模式、大小或名称继续导出；录得不满意可以直接放弃或重录。
-- **可选人像与鼠标效果**：摄像头画中画、自然修饰、鼠标光点和点击波纹，按需开启。
+- **可选人像与鼠标效果**：摄像头画中画、自然修饰、鼠标准星和点击波纹，按需开启。
 - **全程本地处理**：无账号、无上传、无统计，文件保存到 Mac 的“下载”目录。
-
-<p align="center">
-  <img src="docs/images/v0.5.0/export-tracks.jpg" width="560" alt="0.5.0 实际导出界面：勾选视频、电脑声音和人声，选择分轨、视频大小，并在保存前命名">
-  <br>
-  <sub>0.5.0（build 13）实际界面，使用生成的演示素材截图。</sub>
-</p>
 
 ## 从录制到保存
 
@@ -61,9 +61,9 @@
 保存后留在同一工作区，可更换设置并点击“再导出一份”；尚未保存时可“放弃此次录制”或“重新录制”，无需先导出。已保存的文件会保留。
 
 <p align="center">
-  <img src="docs/images/v0.5.0/export-again.jpg" width="480" alt="0.5.0 保存后实际界面：已输出三个分轨文件，仍可切换合并、自定义视频上限并再次导出">
+  <img src="docs/images/snap-recorder-export.png" width="680" alt="Snap Recorder 1.1.0 真实导出界面：选择视频、电脑声音和人声，选择合并或分轨、五档视频大小并命名">
   <br>
-  <sub>已保存三个分轨文件后，继续选择合并与自定义大小。</sub>
+  <sub>导出工作区沿用同一套器物语言；截图来自本次真实构建的内置演示录制。</sub>
 </p>
 
 ## 视频大小按用途选择
@@ -82,9 +82,11 @@
 
 ## 人像与演示效果
 
-开启摄像头后可预览人像，支持圆角方形 / 圆形、三档大小、四角位置与镜像。自然修饰提供原图、自然、柔和三档，仅在本机处理摄像头画面，不瘦脸、不美妆、不识别身份。人像直接合入视频，不另导出摄像头文件；停止录制或关闭摄像头后释放设备。
+开启摄像头后可预览人像，支持圆角方形 / 圆形、三档大小、四角位置与镜像。自然修饰提供原图、自然、柔和三档，仅在本机处理摄像头画面，不瘦脸、不美妆、不识别身份。人像外圈带一道铝质边框，预览与成片一致；人像直接合入视频，不另导出摄像头文件；停止录制或关闭摄像头后释放设备。
 
-鼠标可显示为带光晕的圆形光点，点击时出现扩散波纹；关闭“录制鼠标”后隐藏鼠标。局部录像的聚焦蒙版保留框内原色，将框外转为单色并压暗。
+空闲时点击主窗口左上角关闭会彻底退出应用；录制或导出关键状态仍会先确认，避免误关丢失内容。
+
+鼠标可显示为白色准星（细圆环加四道短刻线，外描深色，深浅画面上都清楚），点击时圆环向外扩散；关闭“录制鼠标”后隐藏鼠标。局部录像的聚焦蒙版保留框内原色，将框外转为单色并压暗。
 
 | 快捷键 | 作用 |
 | --- | --- |
@@ -94,11 +96,11 @@
 
 ## 安装
 
-1. [下载 1.0.0 安装包](https://github.com/shuyan-5200/snap-recorder/releases/download/v1.0.0/Snap-Recorder-v1.0.0-macOS-universal.zip)，解压后把 `Snap Recorder.app` 拖入“应用程序”。
+1. [下载 1.1.0 安装包](https://github.com/shuyan-5200/snap-recorder/releases/download/v1.1.0/Snap-Recorder-v1.1.0-macOS-universal.zip)，解压后把 `Snap Recorder.app` 拖入“应用程序”。
 2. 首次启动允许“屏幕与系统音频录制”；需要人声或人像时，再分别允许麦克风与摄像头。
 3. 选择来源，开始录制。
 
-支持 **macOS 14+**、Apple Silicon 与 Intel Mac；**人声录制需要 macOS 15+**。当前版本为 **1.0.0 / build 15**，Universal ZIP 约 **2.2 MB**。[查看发布记录与历史版本](https://github.com/shuyan-5200/snap-recorder/releases)。
+支持 **macOS 14+**、Apple Silicon 与 Intel Mac；**人声录制需要 macOS 15+**。当前版本为 **1.1.0 / build 17**，Universal ZIP 约 **2.3 MB**。[查看发布记录与历史版本](https://github.com/shuyan-5200/snap-recorder/releases)。
 
 应用尚未经过 Apple 公证。首次启动若被 macOS 拦截，请右键应用选择“打开”；仍被拦截时，前往“系统设置”→“隐私与安全性”→“仍要打开”。
 
@@ -136,7 +138,7 @@ swift build -c release
 
 当前不提供编辑器、剪辑、自动变焦、摄像头分轨、多显示器选择或云分享；DRM 受保护内容可能显示为黑屏。
 
-更多信息：[产品规格](docs/product-spec.md) · [技术说明](docs/technical-notes.md) · [验证记录](docs/verification.md) · [贡献指南](CONTRIBUTING.md)。
+更多信息：[器物视觉规范](视觉规范/器物/index.html) · [产品规格](docs/product-spec.md) · [技术说明](docs/technical-notes.md) · [验证记录](docs/verification.md) · [贡献指南](CONTRIBUTING.md)。
 
 ## License
 

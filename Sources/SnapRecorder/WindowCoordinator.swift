@@ -236,10 +236,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
         position(panel: panel, size: CGSize(width: 274, height: 54), topOffset: 18)
         panel.orderFrontRegardless()
+        // 局部录像时选区浮层保持显示；控制条出现即进入录制态，刻度转为信号橙。
+        regionOverlay.setRecordingActive(true)
     }
 
     func hideRecordingHUD() {
         recordingPanel?.orderOut(nil)
+        regionOverlay.setRecordingActive(false)
     }
 
     func showCameraPreview(frames: CameraFrameStore, settings: CameraOverlaySettings) {
@@ -252,7 +255,24 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard sender === mainWindow else { return true }
-        return model?.closeExportSessionIfNeeded() ?? true
+        guard let model else { return true }
+
+        // Keep the main window visible while the existing quit-protection
+        // dialogs handle recording, countdown, retryable saves or an active
+        // export. Returning false prevents the red close button from hiding
+        // the only recovery surface before that decision is complete.
+        if model.phase == .countdown
+            || model.phase.isCapturing
+            || model.hasRetryableSave
+            || model.phase == .preparingExport
+            || model.phase == .exporting {
+            NSApp.terminate(nil)
+            return false
+        }
+
+        // The export workspace already owns its discard confirmation. Once it
+        // agrees to close, closing the last main window quits the application.
+        return model.closeExportSessionIfNeeded()
     }
 
     func windowWillClose(_ notification: Notification) {

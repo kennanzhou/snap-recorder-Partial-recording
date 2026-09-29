@@ -746,16 +746,28 @@ enum RecordingDiagnostics {
             )
         )
 
+        // 准星：圆环与刻线为白色，中心留空不挡住指向的内容；点击波纹为扩散的白色圆环。
+        let scale = MouseEffectStyle.scale(for: size)
+        let ringX = Int(120 + MouseEffectStyle.ringRadius * scale)
+        let tickX = Int(120 + (MouseEffectStyle.tickInner + MouseEffectStyle.tickOuter) / 2 * scale)
+        let clickX = Int(120 + MouseEffectStyle.clickRadius(progress: 0.5) * scale)
+
         let baseCenter = pixel(in: baseDestination, x: 120, y: 80)
         let cursorCenter = pixel(in: cursorDestination, x: 120, y: 80)
-        let baseRing = pixel(in: baseDestination, x: 141, y: 80)
-        let clickRing = pixel(in: clickDestination, x: 141, y: 80)
+        let baseRing = pixel(in: baseDestination, x: ringX, y: 80)
+        let cursorRing = pixel(in: cursorDestination, x: ringX, y: 80)
+        let cursorTick = pixel(in: cursorDestination, x: tickX, y: 80)
+        let baseClick = pixel(in: baseDestination, x: clickX, y: 80)
+        let clickRing = pixel(in: clickDestination, x: clickX, y: 80)
 
-        guard cursorCenter.brightness > baseCenter.brightness * 4,
-              clickRing.red > baseRing.red * 1.5,
-              clickRing.red > clickRing.green else {
+        guard cursorRing.brightness > baseRing.brightness * 4,
+              channelSpread(cursorRing) < 20,
+              cursorTick.brightness > baseCenter.brightness * 3,
+              abs(cursorCenter.brightness - baseCenter.brightness) < 12,
+              clickRing.brightness > baseClick.brightness * 2,
+              channelSpread(clickRing) < 20 else {
             throw CaptureError.couldNotFinishWriter(
-                "鼠标光点效果自检异常（中心 \(cursorCenter)/\(baseCenter)，点击 \(clickRing)/\(baseRing)）。"
+                "鼠标准星效果自检异常（圆环 \(cursorRing)/\(baseRing)，刻线 \(cursorTick)，中心 \(cursorCenter)/\(baseCenter)，点击 \(clickRing)/\(baseClick)）。"
             )
         }
     }

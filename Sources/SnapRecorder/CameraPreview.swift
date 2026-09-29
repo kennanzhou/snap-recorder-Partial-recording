@@ -75,7 +75,10 @@ private final class CameraPreviewRenderer: @unchecked Sendable {
 @MainActor
 private final class CameraPreviewView: NSView {
     private let cameraLayer = CALayer()
-    private let border = CALayer()
+    /// 外圈深色细线与投影。
+    private let hairline = CALayer()
+    /// 铝质边框：与成片相同的宽度比例与上亮下暗渐变。
+    private let frameLayer = CAGradientLayer()
     private let renderer = CameraPreviewRenderer()
     private var settings = CameraOverlaySettings()
     private var padding: CGFloat = 14
@@ -90,14 +93,17 @@ private final class CameraPreviewView: NSView {
         wantsLayer = true
         cameraLayer.contentsGravity = .resizeAspectFill
         cameraLayer.masksToBounds = true
+        hairline.backgroundColor = NSColor.black.withAlphaComponent(0.4).cgColor
+        hairline.shadowColor = NSColor.black.cgColor
+        hairline.shadowOpacity = 0.3
+        hairline.shadowRadius = 9
+        hairline.shadowOffset = CGSize(width: 0, height: -3)
+        frameLayer.colors = [NSColor(hex: 0xE6E4DF).cgColor, NSColor(hex: 0xC6C4BE).cgColor]
+        frameLayer.startPoint = CGPoint(x: 0.5, y: 1)
+        frameLayer.endPoint = CGPoint(x: 0.5, y: 0)
+        layer?.addSublayer(hairline)
+        layer?.addSublayer(frameLayer)
         layer?.addSublayer(cameraLayer)
-        border.borderColor = NSColor.white.withAlphaComponent(0.45).cgColor
-        border.borderWidth = 1
-        border.shadowColor = NSColor.black.cgColor
-        border.shadowOpacity = 0.3
-        border.shadowRadius = 9
-        border.shadowOffset = CGSize(width: 0, height: -3)
-        layer?.insertSublayer(border, below: cameraLayer)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -153,15 +159,27 @@ private final class CameraPreviewView: NSView {
         CATransaction.setDisableActions(true)
         let rect = bounds.insetBy(dx: padding, dy: padding)
         let radius = settings.cornerRadius(for: rect)
+        let frameWidth = CameraOverlaySettings.frameWidth(for: rect)
+        let hairlineWidth = CameraOverlaySettings.hairlineWidth(for: rect)
+        let cameraRect = rect.insetBy(dx: frameWidth, dy: frameWidth)
+
+        let outer = rect.insetBy(dx: -hairlineWidth, dy: -hairlineWidth)
+        hairline.frame = outer
+        hairline.cornerRadius = radius + hairlineWidth
+        hairline.shadowPath = CGPath(
+            roundedRect: CGRect(origin: .zero, size: outer.size),
+            cornerWidth: radius + hairlineWidth,
+            cornerHeight: radius + hairlineWidth,
+            transform: nil
+        )
+        frameLayer.frame = rect
+        frameLayer.cornerRadius = radius
+
         cameraLayer.setAffineTransform(.identity)
-        cameraLayer.frame = rect
+        cameraLayer.frame = cameraRect
         cameraLayer.setAffineTransform(CGAffineTransform(scaleX: settings.mirrored ? -1 : 1, y: 1))
-        cameraLayer.cornerRadius = radius
-        cameraLayer.borderColor = NSColor.white.withAlphaComponent(0.45).cgColor
-        cameraLayer.borderWidth = 1
-        border.frame = rect
-        border.cornerRadius = radius
-        border.shadowPath = CGPath(roundedRect: CGRect(origin: .zero, size: rect.size), cornerWidth: radius, cornerHeight: radius, transform: nil)
+        cameraLayer.cornerRadius = max(0, radius - frameWidth)
+        cameraLayer.borderWidth = 0
         CATransaction.commit()
     }
 }
