@@ -148,7 +148,13 @@ final class CaptureRegionOverlayController {
         setInteractionLocked(!(overlayView?.isInteractionLocked ?? false))
     }
 
+    /// 录制中刻度与角标灯转为信号橙；只影响浮层外观，浮层本身不进入成片。
+    func setRecordingActive(_ active: Bool) {
+        overlayView?.setRecordingActive(active)
+    }
+
     func hide() {
+        overlayView?.setRecordingActive(false)
         panel?.orderOut(nil)
     }
 
@@ -262,6 +268,7 @@ private final class CaptureRegionOverlayView: NSView {
     private(set) var isFocusMaskEnabled = false
     private(set) var focusMaskCornerStyle: FocusMaskCornerStyle = .rounded
     private(set) var isInteractionLocked = false
+    private(set) var isRecordingActive = false
     private var normalizedFocusRect = CGRect(x: 0.2, y: 0.2, width: 0.6, height: 0.6)
     private var dragOperation: DragOperation?
     private var dragStartFrame = CGRect.zero
@@ -319,6 +326,12 @@ private final class CaptureRegionOverlayView: NSView {
         if !locked {
             NSCursor.openHand.set()
         }
+    }
+
+    func setRecordingActive(_ active: Bool) {
+        guard isRecordingActive != active else { return }
+        isRecordingActive = active
+        needsDisplay = true
     }
 
     override func updateTrackingAreas() {
@@ -432,20 +445,91 @@ private final class CaptureRegionOverlayView: NSView {
         }
 
         let borderRect = bounds.insetBy(dx: 3, dy: 3)
-        let border = captureCornerStyle == .rounded
-            ? NSBezierPath(roundedRect: borderRect, xRadius: 12, yRadius: 12)
-            : NSBezierPath(rect: borderRect)
-        border.lineWidth = 5
-        NSColor.systemPurple.withAlphaComponent(0.22).setStroke()
+        let cornerRadius: CGFloat = captureCornerStyle == .rounded ? 12 : 0
+
+        // 深色内外描各 1pt，让白色虚线压在深浅画面上都清楚。
+        Overlay.outline.setStroke()
+        for offset in [-1.25, 1.25] as [CGFloat] {
+            let outline = Self.framePath(
+                borderRect.insetBy(dx: offset, dy: offset),
+                cornerRadius: max(0, cornerRadius - offset)
+            )
+            outline.lineWidth = 1
+            outline.stroke()
+        }
+
+        let border = Self.framePath(borderRect, cornerRadius: cornerRadius)
+        border.lineWidth = 1.5
+        border.setLineDash([6, 4], count: 2, phase: 0)
+        NSColor.white.withAlphaComponent(0.95).setStroke()
         border.stroke()
 
-        border.lineWidth = 2
-        border.setLineDash([8, 6], count: 2, phase: 0)
-        NSColor.systemPink.withAlphaComponent(0.96).setStroke()
-        border.stroke()
-
-        drawHandles()
+        drawRulers(in: borderRect, cornerRadius: cornerRadius)
+        if !isInteractionLocked {
+            drawHandles()
+        }
         drawRatioBadge()
+    }
+
+    private enum Overlay {
+        static let outline = NSColor.black.withAlphaComponent(0.55)
+        static let tick = NSColor.white.withAlphaComponent(0.92)
+        static let signal = NSColor(hex: 0xEE5A24)
+        static let aluminum = NSColor(hex: 0xE6E4DF)
+        static let handleEdge = NSColor.black.withAlphaComponent(0.6)
+        static let graphite = NSColor(hex: 0x232322)
+        static let ledRing = NSColor(hex: 0x3A3936)
+    }
+
+    private static func framePath(_ rect: CGRect, cornerRadius: CGFloat) -> NSBezierPath {
+        cornerRadius > 0
+            ? NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+            : NSBezierPath(rect: rect)
+    }
+
+    /// 顶边与左边各一条刻度尺：十等分，两端与中点为长刻度；录制中转为信号橙。
+    private func drawRulers(in rect: CGRect, cornerRadius: CGFloat) {
+        let inset = cornerRadius + 4
+        let color = isRecordingActive ? Overlay.signal : Overlay.tick
+
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.85)
+        shadow.shadowBlurRadius = 1.5
+        shadow.shadowOffset = .zero
+        shadow.set()
+        color.setFill()
+
+        let horizontalSpan = rect.width - inset * 2
+        if horizontalSpan > 60 {
+            let top = rect.maxY - 2.5
+            for index in 0...10 {
+                let x = (rect.minX + inset + horizontalSpan * CGFloat(index) / 10).rounded()
+                let length: CGFloat = index.isMultiple(of: 5) ? 8 : 4
+                NSBezierPath(rect: CGRect(x: x - 0.5, y: top - length, width: 1, height: length)).fill()
+            }
+        }
+
+        let verticalSpan = rect.height - inset * 2
+        if verticalSpan > 60 {
+            let left = rect.minX + 2.5
+            for index in 0...10 {
+                let y = (rect.maxY - inset - verticalSpan * CGFloat(index) / 10).rounded()
+                let length: CGFloat = index.isMultiple(of: 5) ? 8 : 4
+                NSBezierPath(rect: CGRect(x: left, y: y - 0.5, width: length, height: 1)).fill()
+            }
+        }
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    /// 铝质小手柄：铝亮底、1pt 深色边。
+    private func drawHandle(_ rect: CGRect) {
+        let handle = NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5)
+        Overlay.aluminum.setFill()
+        handle.fill()
+        handle.lineWidth = 1
+        Overlay.handleEdge.setStroke()
+        handle.stroke()
     }
 
     private var focusBounds: CGRect {
@@ -544,10 +628,11 @@ private final class CaptureRegionOverlayView: NSView {
             xRadius: cornerRadius,
             yRadius: cornerRadius
         )
-        outline.lineWidth = 1.2
-        NSColor(calibratedWhite: 0.56, alpha: 0.72).setStroke()
+        outline.lineWidth = 1
+        NSColor.white.withAlphaComponent(0.7).setStroke()
         outline.stroke()
 
+        guard !isInteractionLocked else { return }
         let handles = [
             CGPoint(x: rect.minX, y: rect.minY),
             CGPoint(x: rect.maxX, y: rect.minY),
@@ -555,9 +640,7 @@ private final class CaptureRegionOverlayView: NSView {
             CGPoint(x: rect.maxX, y: rect.maxY)
         ]
         for point in handles {
-            let path = NSBezierPath(ovalIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7))
-            NSColor(calibratedWhite: 0.72, alpha: 0.88).setFill()
-            path.fill()
+            drawHandle(CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7))
         }
     }
 
@@ -652,30 +735,22 @@ private final class CaptureRegionOverlayView: NSView {
     }
 
     private func drawHandles() {
-        var points = [
+        let corners = [
             CGPoint(x: 4, y: 4),
             CGPoint(x: bounds.maxX - 4, y: 4),
             CGPoint(x: 4, y: bounds.maxY - 4),
             CGPoint(x: bounds.maxX - 4, y: bounds.maxY - 4)
         ]
-        if aspectRatio == nil {
-            points += [
-                CGPoint(x: bounds.midX, y: 4),
-                CGPoint(x: bounds.midX, y: bounds.maxY - 4),
-                CGPoint(x: 4, y: bounds.midY),
-                CGPoint(x: bounds.maxX - 4, y: bounds.midY)
-            ]
+        for point in corners {
+            drawHandle(CGRect(x: point.x - 4.5, y: point.y - 4.5, width: 9, height: 9))
         }
 
-        for point in points {
-            let handleRect = CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)
-            let handle = NSBezierPath(ovalIn: handleRect)
-            NSColor.white.setFill()
-            handle.fill()
-            handle.lineWidth = 1.5
-            NSColor.systemPink.setStroke()
-            handle.stroke()
-        }
+        // 自定义比例时四边中点也能拖动。
+        guard aspectRatio == nil else { return }
+        drawHandle(CGRect(x: bounds.midX - 7, y: 1, width: 14, height: 6))
+        drawHandle(CGRect(x: bounds.midX - 7, y: bounds.maxY - 7, width: 14, height: 6))
+        drawHandle(CGRect(x: 1, y: bounds.midY - 7, width: 6, height: 14))
+        drawHandle(CGRect(x: bounds.maxX - 7, y: bounds.midY - 7, width: 6, height: 14))
     }
 
     private func drawRatioBadge() {
@@ -690,23 +765,52 @@ private final class CaptureRegionOverlayView: NSView {
         let text = "\(ratioTitle)  ·  \(instruction)"
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: NSColor.white.withAlphaComponent(0.92)
+            .foregroundColor: Overlay.graphite
         ]
         let textSize = text.size(withAttributes: attributes)
+        let lampWidth: CGFloat = isRecordingActive ? 15 : 0
+        let badgeWidth = textSize.width + 20 + lampWidth
+        let badgeHeight = textSize.height + 8
         let badgeRect = CGRect(
-            x: bounds.midX - (textSize.width + 22) / 2,
-            y: bounds.maxY - textSize.height - 20,
-            width: textSize.width + 22,
-            height: textSize.height + 10
-        )
-        let badge = NSBezierPath(roundedRect: badgeRect, xRadius: badgeRect.height / 2, yRadius: badgeRect.height / 2)
-        NSColor(calibratedWhite: 0.06, alpha: 0.82).setFill()
+            x: bounds.midX - badgeWidth / 2,
+            y: bounds.maxY - 18 - badgeHeight,
+            width: badgeWidth,
+            height: badgeHeight
+        ).integral
+        let badge = NSBezierPath(roundedRect: badgeRect, xRadius: 3, yRadius: 3)
+
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
+        shadow.shadowBlurRadius = 8
+        shadow.shadowOffset = CGSize(width: 0, height: -3)
+        shadow.set()
+        Overlay.aluminum.setFill()
         badge.fill()
-        NSColor.white.withAlphaComponent(0.13).setStroke()
-        badge.lineWidth = 1
-        badge.stroke()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let highlight = NSBezierPath()
+        highlight.move(to: CGPoint(x: badgeRect.minX + 3, y: badgeRect.maxY - 1.5))
+        highlight.line(to: CGPoint(x: badgeRect.maxX - 3, y: badgeRect.maxY - 1.5))
+        highlight.lineWidth = 1
+        NSColor.white.withAlphaComponent(0.8).setStroke()
+        highlight.stroke()
+
+        let edge = NSBezierPath(roundedRect: badgeRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 2.5, yRadius: 2.5)
+        edge.lineWidth = 1
+        Overlay.graphite.withAlphaComponent(0.35).setStroke()
+        edge.stroke()
+
+        if isRecordingActive {
+            let center = CGPoint(x: badgeRect.minX + 10 + 4.5, y: badgeRect.midY)
+            Overlay.ledRing.setFill()
+            NSBezierPath(ovalIn: CGRect(x: center.x - 4.5, y: center.y - 4.5, width: 9, height: 9)).fill()
+            Overlay.signal.setFill()
+            NSBezierPath(ovalIn: CGRect(x: center.x - 3, y: center.y - 3, width: 6, height: 6)).fill()
+        }
+
         text.draw(
-            at: CGPoint(x: badgeRect.minX + 11, y: badgeRect.minY + 5),
+            at: CGPoint(x: badgeRect.minX + 10 + lampWidth, y: badgeRect.minY + 4),
             withAttributes: attributes
         )
     }

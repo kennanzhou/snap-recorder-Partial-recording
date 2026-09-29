@@ -236,10 +236,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
         position(panel: panel, size: CGSize(width: 274, height: 54), topOffset: 18)
         panel.orderFrontRegardless()
+        // 局部录像时选区浮层保持显示；控制条出现即进入录制态，刻度转为信号橙。
+        regionOverlay.setRecordingActive(true)
     }
 
     func hideRecordingHUD() {
         recordingPanel?.orderOut(nil)
+        regionOverlay.setRecordingActive(false)
     }
 
     func showCameraPreview(frames: CameraFrameStore, settings: CameraOverlaySettings) {

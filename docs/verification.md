@@ -2,6 +2,18 @@
 
 This document records reproducible project-level checks without retaining user recordings, window titles, personal paths, or private media.
 
+## v1.1.0 build 16: instrument visual system and release candidate
+
+2026-09-29. The main panel, export workspace, countdown, recording HUD, camera settings and region overlay now share the adopted Instrument visual system. Recording and export behavior keep the existing state and model calls.
+
+- `swift build -c release` and `.build/release/SnapRecorder --self-test` passed, including repeat export, measured size tiers, custom byte ceilings, all audio/content arrangements, camera compositing, pause alignment and native portrait processing.
+- The Instrument specification passed all 63 offline checks for structure, accessibility labels, local-only resources, forbidden APIs, contrast, export planning, simulated workflow and edge states.
+- The README and product page use 2x images captured from this build: 1120x1234 for the main region setup and 1120x984 for the export workspace.
+- The Universal App and the extracted App both pass strict signature verification. The executable contains `x86_64 arm64`, reports 1.1.0 / build 16, and is byte-identical before and after packaging.
+- The ZIP contains only the executable, Info.plist, icon and signature resources. It contains no recordings, audio, screenshots, logs or test media.
+- Release candidate: `Snap-Recorder-v1.1.0-macOS-universal.zip`, 2,325,337 bytes; SHA-256 `c99b74d960f31649a8518509585a39ce882240d2bcc6341b08a9bc5a04efa682`.
+- Darkroom, Folio and the three-direction comparison were moved to the desktop visual archive. The repository retains only the adopted Instrument specification and implementation.
+
 ## v1.0.0 build 15: first 1.0 release package
 
 2026-09-21. The first 1.0 release packages the merged PR #9 feature source, without additional runtime changes from the verified local 0.5.1 candidate below. Version metadata, release notes and download links are advanced to 1.0.0 / build 15.
