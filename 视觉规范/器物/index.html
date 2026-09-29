@@ -250,7 +250,7 @@
                     <div class="channel">
                       <div class="ch-controls"><button type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="lbl-mouse" data-toggle="mouse"></button></div>
                       <p class="ch-title" id="lbl-mouse">录制鼠标</p>
-                      <p class="ch-sub" id="mouse-sub">圆形光点跟随，点击时扩散</p>
+                      <p class="ch-sub" id="mouse-sub">准星跟随，点击时扩散</p>
                     </div>
                   </div>
                 </section>
@@ -929,7 +929,7 @@
             <tr><th scope="row">显示窗</th><td>导出时长、体积读数、已保存列表</td><td>深色内凹容器承载读数与清单，内阴影加上缘反光</td></tr>
             <tr><th scope="row">浮窗</th><td><code>CountdownView</code>、<code>RecordingHUDView</code></td><td>铝面板加显示窗与实体键；面板仍为 <code>sharingType = .none</code></td></tr>
             <tr><th scope="row">选区浮层</th><td><code>CaptureRegionOverlay</code> 绘制代码</td><td>粉色虚线改白色虚线加深色外描，上边与左边画刻度尺，录制中刻度为橙色</td></tr>
-            <tr><th scope="row">人像</th><td><code>CameraOptionsView</code>、<code>CameraPreview</code>、<code>CameraOverlay</code></td><td>设置面板使用“按下 + 亮灯”；预览与成片边框保持克制，不把机身装饰写入录像内容</td></tr>
+            <tr><th scope="row">人像</th><td><code>CameraOptionsView</code>、<code>CameraPreview</code>、<code>CameraOverlay</code></td><td>设置面板使用“按下 + 亮灯”；预览与成片都带一道铝质边框（边长 3%，外加深色细线），两者按同一比例绘制</td></tr>
           </tbody>
         </table>
 
@@ -947,8 +947,8 @@
             <h3>明确边界</h3>
             <ul>
               <li>主面板固定为铝灰中间调，不随系统深浅色变化。</li>
-              <li>“器物”作用于应用界面；成片里的人像继续使用低装饰白边，不增加铝质机身边框。</li>
-              <li>成片鼠标光点与点击波纹属于录像内容效果，不套用界面的信号橙规则。</li>
+              <li>成片里的人像带一道铝质边框，与摄像头预览一致。</li>
+              <li>成片鼠标为白色准星与扩散圆环，属于录像内容效果，不使用信号橙。</li>
               <li>点阵读数、拉丝纹、刻度尺和旋钮挡位需要在每次高分辨率截图与真机构建中复核。</li>
             </ul>
           </div>

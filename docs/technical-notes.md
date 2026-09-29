@@ -18,6 +18,10 @@
 
 没有使用 `SCRecordingOutput`，因为当前链路需要统一处理输出尺寸与暂停 / 继续时间轴。
 
+## 主窗口关闭与进程退出
+
+Snap Recorder 是单主窗口工具。空闲时关闭最后一个主窗口后，`applicationShouldTerminateAfterLastWindowClosed` 会结束应用，不再留下只有菜单栏图标的隐藏进程。倒计时、录制、待处理保存或正在导出时，`WindowCoordinator` 会把关闭动作转交给现有的退出保护流程，并保持主窗口可见，直到用户确认继续或取消；导出工作区仍使用自己的放弃确认。
+
 ## 隐私隔离
 
 - 浏览器：`SCContentFilter(desktopIndependentWindow:)`，采集源只包含一个窗口。
@@ -90,9 +94,9 @@ ScreenCaptureKit 在暂停期间保持采集，但 writer 丢弃样本。继续�
 
 `⌘E` 通过切换选区 `NSPanel.ignoresMouseEvents` 实现可调整与点击穿透状态。全局热键使用 Carbon `RegisterEventHotKey` 按状态临时注册：局部准备态注册 `⌘E`，浮层锁定后额外注册 `⌘R`，录制或暂停时只注册 `Esc`。离开对应状态立即注销，避免常驻抢占浏览器刷新等系统惯用键。
 
-## 鼠标光点与点击波纹
+## 鼠标准星与点击波纹
 
-三种模式都把 `SCStreamConfiguration.showsCursor` 设为 `false`，因此系统箭头永远不会被 ScreenCaptureKit 直接写进画面。用户开启“录制鼠标”时，录制器在每个视频帧上轮询 `CGEvent` 的全局位置与 `CGEventSource.buttonState` 的公开会话按键状态，把坐标映射到浏览器窗口、显示器或局部选区，再由 Core Image 绘制白色圆形光点、紫色柔光和 0.65 秒点击扩散波纹。关闭选项时不创建跟踪器，也不增加任何鼠标图层。
+三种模式都把 `SCStreamConfiguration.showsCursor` 设为 `false`，因此系统箭头永远不会被 ScreenCaptureKit 直接写进画面。用户开启“录制鼠标”时，录制器在每个视频帧上轮询 `CGEvent` 的全局位置与 `CGEventSource.buttonState` 的公开会话按键状态，把坐标映射到浏览器窗口、显示器或局部选区，再由 Core Image 绘制白色准星（细圆环与四道短刻线，外描 60% 深色）和 0.65 秒点击扩散圆环；尺寸在 `MouseEffectStyle` 中按 1080p 定义，随画面短边在 0.65–2.25 倍之间缩放。关闭选项时不创建跟踪器，也不增加任何鼠标图层。
 
 该实现不安装事件注入或键鼠监听，不要求辅助功能和输入监控权限。暂停期间不更新点击动画，继续录制时会同步当前按键状态并清空旧波纹，避免把暂停期间的点击误写到成片。
 

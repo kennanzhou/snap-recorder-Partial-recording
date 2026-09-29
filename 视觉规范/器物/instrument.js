@@ -625,7 +625,7 @@
     el.cameraSpinner.hidden = !S.cameraPreparing;
 
     setSwitch(sw.mouse, S.mouse);
-    setText(el.mouseSub, S.mouse ? '圆形光点跟随，点击时扩散' : '成片不显示鼠标');
+    setText(el.mouseSub, S.mouse ? '准星跟随，点击时扩散' : '成片不显示鼠标');
     el.start.disabled = !canStart();
 
     markRadio(el.posGrid, S.cam.position, 'pos');
@@ -1013,7 +1013,7 @@
     el.hudStop.addEventListener('click', stopRecording);
     bindSwitch(sw.annotate, (on) => { S.annotate = on; renderStage(); });
 
-    // 成片鼠标光点示意：只跟随指针，不读取系统鼠标
+    // 成片鼠标准星示意：只跟随指针，不读取系统鼠标
     el.stage.addEventListener('pointermove', (e) => {
       const r = el.stage.getBoundingClientRect();
       el.cursor.style.transform = `translate(${e.clientX - r.left}px, ${e.clientY - r.top}px)`;

@@ -81,7 +81,7 @@ struct RecorderView: View {
             ("应用与网页声音", false),
             (microphoneSubtitle, model.microphoneMessage != nil && model.microphoneFeatureAvailable),
             (cameraSubtitle, model.cameraMessage != nil || model.cameraReady),
-            (model.capturesMouseEffects ? "圆形光点跟随，点击时扩散" : "成片不显示鼠标", false)
+            (model.capturesMouseEffects ? "准星跟随，点击时扩散" : "成片不显示鼠标", false)
         ]
         let tallest = channels.map { channel -> CGFloat in
             let detail = (channel.detail as NSString).boundingRect(
@@ -623,7 +623,7 @@ struct RecorderView: View {
 
             channelStrip(
                 title: "录制鼠标",
-                detail: model.capturesMouseEffects ? "圆形光点跟随，点击时扩散" : "成片不显示鼠标"
+                detail: model.capturesMouseEffects ? "准星跟随，点击时扩散" : "成片不显示鼠标"
             ) {
                 SlideSwitch("录制鼠标", isOn: $model.capturesMouseEffects)
             }
