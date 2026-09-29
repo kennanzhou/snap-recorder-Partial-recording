@@ -2,6 +2,15 @@
 
 This document records reproducible project-level checks without retaining user recordings, window titles, personal paths, or private media.
 
+## Instrument product page and visual philosophy
+
+2026-09-30. The existing GitHub Pages site adopts the Instrument palette and material system: aluminum panels, graphite keys, recessed readouts and mechanical markings. README adds the design philosophy and links to the adopted specification. The App remains 1.1.1 / build 18; no recording/export code or package has changed.
+
+- Local Chromium checks passed at 1440, 1100, 960, 850, 768, 650, 390 and 320 CSS pixels: no horizontal overflow, missing images, missing anchor targets or page errors. Both download buttons point to the 1.1.1 Universal release.
+- Desktop and phone-size renderings were visually inspected. The two real macOS screenshots retain at least two source pixels per displayed CSS pixel; original-resolution links are available. README displays each 1120-pixel image at no more than 560 CSS pixels.
+- Keyboard skip navigation, the download anchor and reduced-motion behavior passed. The page requires no JavaScript, third-party fonts or additional services. Website color variables are aligned with `视觉规范/器物/instrument.css`; orange stays reserved for the recording identity.
+- `swift build -c release` and the complete `.build/release/SnapRecorder --self-test` passed. This is a website/documentation check, not a new live screen, microphone or camera test.
+
 ## v1.1.1 build 18: Instrument application icon
 
 2026-09-30. The application, README and product page now use the same Instrument icon: a brushed-aluminum body, recessed graphite dial, mechanical tick marks and the signal-orange recording lamp. Recording and export source behavior is unchanged from v1.1.0.
