@@ -37,10 +37,11 @@ final class GlobalShortcutController {
     func update(
         isRegionPreparing: Bool,
         isRegionLocked: Bool,
+        isCountdownActive: Bool = false,
         isRecording: Bool
     ) {
         unregisterHotKeys()
-        if isRecording {
+        if isCountdownActive || isRecording {
             register(
                 keyCode: UInt32(kVK_Escape),
                 modifiers: 0,

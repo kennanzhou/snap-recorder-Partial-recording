@@ -52,6 +52,7 @@ final class AppModel: ObservableObject {
     @Published var exportInfo: RecordingExportInfo?
     @Published var isCancellingExport = false
     private var exportTask: Task<Void, Never>?
+    private var recordingStartTask: Task<Void, Never>?
     private var activeCapturesCamera = false
 
     private let captureService: ScreenCaptureService
@@ -548,7 +549,12 @@ final class AppModel: ObservableObject {
     }
 
     func startRecording() {
-        Task { await performStartRecording() }
+        guard recordingStartTask == nil else { return }
+        recordingStartTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.recordingStartTask = nil }
+            await self.performStartRecording()
+        }
     }
 
     func togglePause() {
@@ -565,6 +571,10 @@ final class AppModel: ObservableObject {
     }
 
     func stopRecording() {
+        if phase == .countdown {
+            recordingStartTask?.cancel()
+            return
+        }
         Task { await performStopRecording() }
     }
 
@@ -661,6 +671,8 @@ final class AppModel: ObservableObject {
 
     private func performStartRecording() async {
         guard canStartRecording else { return }
+        let previousPhase = phase
+        let previousRegionLock = isRegionSelectionLocked
 
         if mode == .region {
             isRegionSelectionLocked = windowCoordinator.setRegionSelectionLocked(true)
@@ -673,22 +685,9 @@ final class AppModel: ObservableObject {
 
         do {
             try ensureDiskSpace()
-            errorMessage = nil
-            completionNote = nil
-            lastRecordingResult = nil
-            hasRetryableSave = false
-            recoveryURLs = []
-            selectedQualityPreset = .balanced
-            selectedExportTracks = [.video]
-            selectedExportArrangement = .merged
-
-            activeCapturesCamera = capturesCamera
-            activeCapturesSystemAudio = capturesSystemAudio
-            activeCapturesMicrophone = capturesMicrophone
             cameraFailureDuringCountdown = nil
 
             let outputURL = try makeOutputURL()
-            exportName = outputURL.deletingPathExtension().lastPathComponent
             let targetProcessID = mode == .browser ? selectedBrowserWindow?.processID : nil
             let request = CaptureRequest(
                 mode: mode,
@@ -705,17 +704,38 @@ final class AppModel: ObservableObject {
             )
 
             phase = .countdown
+            windowCoordinator.updateGlobalShortcuts(
+                isRegionPreparing: false,
+                isRegionLocked: false,
+                isCountdownActive: true,
+                isRecording: false
+            )
             // Resolve the main panel before hiding it; keep this window identity
             // as the sole exception to the application's capture exclusion.
             let mainPanel = mode == .browser ? nil : try await captureService.capturableMainWindow(
                 windowID: windowCoordinator.mainWindowID
             )
             windowCoordinator.prepareForCountdown(targetProcessID: targetProcessID)
-            await windowCoordinator.runCountdown(from: 3)
+            try await windowCoordinator.runCountdown(from: 3)
             try await Task.sleep(for: .milliseconds(120))
+            try Task.checkCancellation()
             if let failure = cameraFailureDuringCountdown {
                 throw CaptureError.couldNotStartWriter(failure)
             }
+
+            errorMessage = nil
+            completionNote = nil
+            lastRecordingResult = nil
+            hasRetryableSave = false
+            recoveryURLs = []
+            selectedQualityPreset = .balanced
+            selectedExportTracks = [.video]
+            selectedExportArrangement = .merged
+            exportName = outputURL.deletingPathExtension().lastPathComponent
+            activeCapturesCamera = capturesCamera
+            activeCapturesSystemAudio = capturesSystemAudio
+            activeCapturesMicrophone = capturesMicrophone
+
             try await captureService.start(request, cameraFrames: capturesCamera ? cameraService.frames : nil, mainPanel: mainPanel)
             if let failure = cameraFailureDuringCountdown {
                 let outcome = try await captureService.stop()
@@ -734,6 +754,20 @@ final class AppModel: ObservableObject {
                 isRegionPreparing: false,
                 isRegionLocked: false,
                 isRecording: true
+            )
+        } catch is CancellationError {
+            cameraFailureDuringCountdown = nil
+            phase = previousPhase
+            stopElapsedTimer()
+            windowCoordinator.hideRecordingHUD()
+            if mode == .region {
+                isRegionSelectionLocked = windowCoordinator.setRegionSelectionLocked(previousRegionLock)
+            }
+            windowCoordinator.showMainWindow()
+            windowCoordinator.updateGlobalShortcuts(
+                isRegionPreparing: mode == .region && previousPhase == .idle,
+                isRegionLocked: mode == .region && previousRegionLock,
+                isRecording: false
             )
         } catch {
             await releaseCamera()

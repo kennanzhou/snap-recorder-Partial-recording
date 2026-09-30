@@ -80,9 +80,31 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         }
 
         statusItem?.isVisible = true
-        window.level = model.mode == .region ? .screenSaver : .normal
+        restoreInteractiveMainWindowLevel()
+        window.hidesOnDeactivate = false
+        // Accessory apps can lose the ordering race when another normal-level
+        // app (usually the selected browser) is still active. LaunchServices
+        // can also restore that app after applicationDidFinishLaunching, so
+        // confirm the same one-time ordering action on the next run-loop turn.
+        bringMainWindowForward(window)
+        Self.installTitlebarDragSurface(on: window)
+        Task { @MainActor [weak self, weak window] in
+            // App activation is asynchronous. A short delayed confirmation
+            // avoids LaunchServices returning focus to the previously active
+            // browser after a cold launch or reopen request.
+            try? await Task.sleep(for: .milliseconds(150))
+            guard let self, let window, self.mainWindow === window,
+                  window.isVisible, self.model?.phase != .countdown else { return }
+            self.bringMainWindowForward(window)
+        }
+    }
+
+    private func bringMainWindowForward(_ window: NSWindow) {
+        NSApp.activate()
+        // The persistent interactive level is managed separately; these calls
+        // only make the currently requested main window active and frontmost.
+        window.orderFrontRegardless()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     /// Also used by the camera-free pointer-interaction test harness.
@@ -107,6 +129,18 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         // excluded by the capture filter, including ones created after capture starts.
         window.sharingType = .readOnly
         return window
+    }
+
+    private static func installTitlebarDragSurface(on window: NSWindow) {
+        guard let frameView = window.contentView?.superview,
+              !frameView.subviews.contains(where: { $0 is TitlebarDragSurface }) else { return }
+        let dragSurface = TitlebarDragSurface(frame: .zero)
+        // AppKit skips a fully transparent layer in the private title-bar hit
+        // hierarchy. A 0.1% neutral fill keeps the hit plane composited while
+        // remaining visually indistinguishable from transparent.
+        dragSurface.wantsLayer = true
+        dragSurface.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.001).cgColor
+        frameView.addSubview(dragSurface, positioned: .above, relativeTo: nil)
     }
 
     @discardableResult
@@ -163,11 +197,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     func updateGlobalShortcuts(
         isRegionPreparing: Bool,
         isRegionLocked: Bool,
+        isCountdownActive: Bool = false,
         isRecording: Bool
     ) {
         shortcutController?.update(
             isRegionPreparing: isRegionPreparing,
             isRegionLocked: isRegionLocked,
+            isCountdownActive: isCountdownActive,
             isRecording: isRecording
         )
     }
@@ -175,8 +211,16 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     func hideRegionSelection(resetMainWindowLevel: Bool = false) {
         regionOverlay.hide()
         if resetMainWindowLevel {
-            mainWindow?.level = .normal
+            restoreInteractiveMainWindowLevel()
         }
+    }
+
+    private func restoreInteractiveMainWindowLevel() {
+        guard let model else { return }
+        // The setup/export window must remain reachable while the user still
+        // has work to do. It is ordered out before countdown, so floating here
+        // never makes it part of the recording workflow.
+        mainWindow?.level = model.mode == .region ? .screenSaver : .floating
     }
 
     func prepareForCountdown(targetProcessID: pid_t?) {
@@ -188,17 +232,18 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         targetApplication?.activate(options: [.activateAllWindows])
     }
 
-    func runCountdown(from start: Int) async {
+    func runCountdown(from start: Int) async throws {
         let panel = countdownPanel ?? makeCountdownPanel()
         countdownPanel = panel
         position(panel: panel, size: CGSize(width: 174, height: 174), topOffset: nil)
+        defer { panel.orderOut(nil) }
 
         for number in stride(from: start, through: 1, by: -1) {
+            try Task.checkCancellation()
             panel.contentView = NSHostingView(rootView: CountdownView(number: number))
             panel.orderFrontRegardless()
-            try? await Task.sleep(for: .seconds(1))
+            try await Task.sleep(for: .seconds(1))
         }
-        panel.orderOut(nil)
     }
 
     func showRecordingHUD() {
@@ -255,24 +300,13 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard sender === mainWindow else { return true }
-        guard let model else { return true }
 
-        // Keep the main window visible while the existing quit-protection
-        // dialogs handle recording, countdown, retryable saves or an active
-        // export. Returning false prevents the red close button from hiding
-        // the only recovery surface before that decision is complete.
-        if model.phase == .countdown
-            || model.phase.isCapturing
-            || model.hasRetryableSave
-            || model.phase == .preparingExport
-            || model.phase == .exporting {
-            NSApp.terminate(nil)
-            return false
-        }
-
-        // The export workspace already owns its discard confirmation. Once it
-        // agrees to close, closing the last main window quits the application.
-        return model.closeExportSessionIfNeeded()
+        // A user-initiated close is an explicit quit request. Keep the window
+        // alive until AppDelegate has applied the recording/export safeguards;
+        // idle sessions terminate immediately, while protected states can
+        // cancel without leaving an invisible menu-bar process behind.
+        NSApp.terminate(nil)
+        return false
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -360,5 +394,68 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
 
     @objc private func quitSnapRecorder() {
         NSApp.terminate(nil)
+    }
+}
+
+/// A native AppKit hit target installed above the full-size SwiftUI host view.
+/// It occupies only the intentionally empty title-bar strip to avoid stealing
+/// gestures from traffic lights or recorder controls.
+private final class TitlebarDragSurface: NSView {
+    private static let height: CGFloat = 44
+    private static let leading: CGFloat = 76
+    private var dragStartMouseLocation: NSPoint?
+    private var dragStartWindowOrigin: NSPoint?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        DispatchQueue.main.async { [weak self] in
+            self?.alignToHostTop()
+        }
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard event.clickCount == 1, window?.isMovable == true else {
+            super.mouseDown(with: event)
+            return
+        }
+        dragStartMouseLocation = NSEvent.mouseLocation
+        dragStartWindowOrigin = window?.frame.origin
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let window, let dragStartMouseLocation, let dragStartWindowOrigin else {
+            super.mouseDragged(with: event)
+            return
+        }
+        let mouseLocation = NSEvent.mouseLocation
+        window.setFrameOrigin(
+            NSPoint(
+                x: dragStartWindowOrigin.x + mouseLocation.x - dragStartMouseLocation.x,
+                y: dragStartWindowOrigin.y + mouseLocation.y - dragStartMouseLocation.y
+            )
+        )
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        dragStartMouseLocation = nil
+        dragStartWindowOrigin = nil
+    }
+
+    private func alignToHostTop() {
+        guard let superview else { return }
+        let topY = superview.isFlipped ? 0 : superview.bounds.height - Self.height
+        frame = NSRect(
+            x: Self.leading,
+            y: topY,
+            width: max(0, superview.bounds.width - Self.leading),
+            height: Self.height
+        )
+        autoresizingMask = superview.isFlipped
+            ? [.width, .maxYMargin]
+            : [.width, .minYMargin]
     }
 }

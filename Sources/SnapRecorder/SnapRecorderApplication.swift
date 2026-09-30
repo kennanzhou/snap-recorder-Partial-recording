@@ -75,11 +75,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // Snap Recorder is a single-window utility. Closing its only main
-        // window should quit the idle app instead of leaving an invisible
-        // menu-bar process behind. Guarded states are intercepted by
-        // WindowCoordinator and routed through applicationShouldTerminate.
-        true
+        // Recording deliberately orders the main window out before countdown.
+        // AppKit treats that as losing the last window even while auxiliary
+        // NSPanels remain visible, so automatic termination would turn the
+        // normal recording transition into a quit request. Explicit close and
+        // Quit actions are routed through applicationShouldTerminate instead.
+        false
     }
 
     func applicationShouldHandleReopen(

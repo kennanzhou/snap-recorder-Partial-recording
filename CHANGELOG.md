@@ -1,5 +1,13 @@
 # 更新记录
 
+## 1.1.2 (build 19)
+
+- Fixed the main window dropping behind the selected browser or desktop while the user still needs to configure a recording. The setup and export window now stays reachable and is explicitly reactivated when reopened.
+- Restored title-bar dragging in Partial Recording mode. A native AppKit drag surface now sits above the custom full-size title bar while preserving the traffic-light controls and every recorder control below it.
+- Added global `Esc` cancellation during the three-second countdown. Cancelling restores the exact pre-recording state, including the Partial Recording selection lock, without creating a recording or clearing export settings.
+- Prevented false “recording is still in progress” and “preparing to record” dialogs caused by AppKit treating the deliberately hidden main window as an application quit. Explicit close and quit actions continue to use the existing recording and export safeguards.
+- Refined shortcut typography across the main window and region overlay so Command-key labels consistently render as `⌘ R` and `⌘ E` with balanced spacing.
+
 ## 1.1.1（build 18）
 
 - 应用图标正式换成“器物”版本：拉丝铝机身、内凹表盘、机械刻度与唯一的信号橙录制灯，与主界面视觉语言一致。
