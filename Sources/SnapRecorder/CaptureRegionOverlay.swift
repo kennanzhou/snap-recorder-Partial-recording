@@ -756,11 +756,11 @@ private final class CaptureRegionOverlayView: NSView {
     private func drawRatioBadge() {
         let instruction: String
         if isInteractionLocked {
-            instruction = "浮层已锁定 · ⌘E 调整"
+            instruction = "浮层已锁定 · ⌘ E 调整"
         } else if isFocusMaskEnabled {
-            instruction = "拖动内框聚焦 · ⌘E 锁定"
+            instruction = "拖动内框聚焦 · ⌘ E 锁定"
         } else {
-            instruction = "拖动框内移动 · ⌘E 锁定"
+            instruction = "拖动框内移动 · ⌘ E 锁定"
         }
         let text = "\(ratioTitle)  ·  \(instruction)"
         let attributes: [NSAttributedString.Key: Any] = [

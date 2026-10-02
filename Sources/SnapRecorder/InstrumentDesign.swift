@@ -287,15 +287,34 @@ struct KeyCap: View {
     var compact = false
 
     var body: some View {
-        Text(text)
+        label
             .font(Instrument.mono(compact ? 9.5 : 10, weight: .medium))
             .foregroundStyle(color)
-            .padding(.horizontal, compact ? 4 : 5)
+            .padding(.leading, compact ? 4 : 5)
+            .padding(.trailing, isCommandShortcut ? (compact ? 3 : 4) : (compact ? 4 : 5))
             .frame(height: compact ? 16 : 18)
             .overlay {
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .strokeBorder(border, lineWidth: 1)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(text)
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if isCommandShortcut {
+            HStack(spacing: 2) {
+                Text("⌘")
+                Text(String(text.dropFirst()))
+            }
+        } else {
+            Text(text)
+        }
+    }
+
+    private var isCommandShortcut: Bool {
+        text.hasPrefix("⌘") && text.count > 1
     }
 }
 
