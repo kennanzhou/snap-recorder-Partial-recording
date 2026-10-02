@@ -6,7 +6,7 @@ import ScreenCaptureKit
 
 @MainActor
 final class AppModel: ObservableObject {
-    @Published var mode: CaptureMode = .browser
+    @Published var mode: CaptureMode = .window
     @Published var capturesSystemAudio = true
     @Published var capturesMicrophone = false
     @Published var capturesMouseEffects = true
@@ -21,14 +21,14 @@ final class AppModel: ObservableObject {
     private var cameraFailureDuringCountdown: String?
     @Published var isRequestingMicrophonePermission = false
     @Published var microphoneMessage: String?
-    @Published var browserWindows: [BrowserWindowInfo] = []
-    @Published var selectedBrowserWindowID: CGWindowID?
+    @Published var availableWindows: [CaptureWindowInfo] = []
+    @Published var selectedWindowID: CGWindowID?
     @Published var phase: RecordingPhase = .idle
     @Published var permissionGranted = CGPreflightScreenCaptureAccess()
     @Published var hasRequestedPermission = false
     @Published var isLoadingWindows = false
-    @Published var browserSelectionNote: String?
-    @Published var browserListError: String?
+    @Published var windowSelectionNote: String?
+    @Published var windowListError: String?
     @Published var selectedRegionAspectRatio: CaptureAspectRatio = .widescreen
     @Published var captureRegion: CaptureRegion?
     @Published var captureRegionCornerStyle: FocusMaskCornerStyle = .rounded
@@ -61,7 +61,8 @@ final class AppModel: ObservableObject {
     private var activeRecordingBeganAt: Date?
     private var elapsedBeforeCurrentSegment: TimeInterval = 0
     private var isHandlingUnexpectedStop = false
-    private var hasLoadedBrowserWindows = false
+    private var hasLoadedWindows = false
+    private var awaitingAccessibilityWindowID: CGWindowID?
     private(set) var activeCapturesSystemAudio = true
     private(set) var activeCapturesMicrophone = false
 
@@ -95,9 +96,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    var selectedBrowserWindow: BrowserWindowInfo? {
-        guard let selectedBrowserWindowID else { return nil }
-        return browserWindows.first { $0.id == selectedBrowserWindowID }
+    var selectedWindow: CaptureWindowInfo? {
+        guard let selectedWindowID else { return nil }
+        return availableWindows.first { $0.id == selectedWindowID }
     }
 
     var canStartRecording: Bool {
@@ -112,8 +113,8 @@ final class AppModel: ObservableObject {
                 return false
             }
         }
-        if mode == .browser {
-            return selectedBrowserWindow != nil
+        if mode == .window {
+            return selectedWindow != nil
         }
         if mode == .region {
             return captureRegion != nil
@@ -253,7 +254,7 @@ final class AppModel: ObservableObject {
         permissionGranted = result || CGPreflightScreenCaptureAccess()
 
         if permissionGranted {
-            Task { await refreshBrowserWindows() }
+            Task { await refreshWindows() }
             captureModeDidChange(mode)
         }
     }
@@ -272,10 +273,18 @@ final class AppModel: ObservableObject {
         }
         if nowGranted,
            phase == .idle || phase == .failed || phase == .finished {
-            Task { await refreshBrowserWindows() }
+            Task { await refreshWindows() }
         }
         if nowGranted, mode == .region, phase == .idle {
             captureModeDidChange(.region)
+        }
+        if nowGranted, mode == .window, phase == .idle,
+           let awaitingAccessibilityWindowID,
+           awaitingAccessibilityWindowID == selectedWindowID,
+           windowCoordinator.hasAccessibilityPermission {
+            // Returning from System Settings after authorization should finish
+            // the user's original selection; do not make them choose it again.
+            selectedWindowDidChange(bringsTargetForward: true)
         }
 
         if microphoneFeatureAvailable {
@@ -411,6 +420,7 @@ final class AppModel: ObservableObject {
     func mainWindowClosed() {
         if phase == .idle || phase == .failed || phase == .finished || phase == .choosingExport {
             setCameraCaptureEnabled(false)
+            windowCoordinator.hideWindowSelection()
             windowCoordinator.hideRegionSelection(resetMainWindowLevel: true)
         }
     }
@@ -427,6 +437,7 @@ final class AppModel: ObservableObject {
     func captureModeDidChange(_ newMode: CaptureMode) {
         guard permissionGranted else {
             isRegionSelectionLocked = false
+            windowCoordinator.hideWindowSelection()
             windowCoordinator.hideRegionSelection(resetMainWindowLevel: true)
             windowCoordinator.updateGlobalShortcuts(
                 isRegionPreparing: false,
@@ -434,6 +445,12 @@ final class AppModel: ObservableObject {
                 isRecording: false
             )
             return
+        }
+        if newMode == .window {
+            windowCoordinator.hideRegionSelection(resetMainWindowLevel: true)
+            selectedWindowDidChange()
+        } else {
+            windowCoordinator.hideWindowSelection()
         }
         guard newMode == .region else {
             isRegionSelectionLocked = false
@@ -464,6 +481,47 @@ final class AppModel: ObservableObject {
             isRegionLocked: isRegionSelectionLocked,
             isRecording: false
         )
+    }
+
+    func selectWindow(_ windowID: CGWindowID) {
+        awaitingAccessibilityWindowID = nil
+        windowSelectionNote = nil
+        selectedWindowID = windowID
+        selectedWindowDidChange(
+            requestAccessibilityPermission: true,
+            bringsTargetForward: true
+        )
+    }
+
+    func selectedWindowDidChange(
+        requestAccessibilityPermission: Bool = false,
+        bringsTargetForward: Bool = false
+    ) {
+        if awaitingAccessibilityWindowID == nil {
+            windowSelectionNote = nil
+        }
+        guard permissionGranted, mode == .window, phase == .idle,
+              let selectedWindow else {
+            windowCoordinator.hideWindowSelection()
+            return
+        }
+        let hasSiblingWindows = availableWindows.lazy
+            .filter { $0.processID == selectedWindow.processID }
+            .prefix(2)
+            .count > 1
+        let raisedExactly = windowCoordinator.showWindowSelection(
+            selectedWindow,
+            requiresExactRaise: hasSiblingWindows,
+            requestAccessibilityPermission: requestAccessibilityPermission,
+            bringsTargetForward: bringsTargetForward
+        )
+        if hasSiblingWindows, !raisedExactly, requestAccessibilityPermission {
+            awaitingAccessibilityWindowID = selectedWindow.id
+            windowSelectionNote = "请在已打开的“辅助功能”中允许 Snap Recorder；返回后会自动置顶所选窗口。"
+        } else if bringsTargetForward, raisedExactly {
+            awaitingAccessibilityWindowID = nil
+            windowSelectionNote = nil
+        }
     }
 
     func selectRegionAspectRatio(_ aspectRatio: CaptureAspectRatio) {
@@ -510,40 +568,42 @@ final class AppModel: ObservableObject {
         startRecording()
     }
 
-    func refreshBrowserWindows() async {
+    func refreshWindows() async {
         guard permissionGranted, !isLoadingWindows else { return }
         isLoadingWindows = true
-        browserListError = nil
+        windowListError = nil
         defer { isLoadingWindows = false }
 
         do {
-            let windows = try await captureService.browserWindows()
-            let previousSelection = selectedBrowserWindowID
-            browserWindows = windows
+            let windows = try await captureService.availableWindows()
+            let previousSelection = selectedWindowID
+            availableWindows = windows
 
             if let previousSelection,
                windows.contains(where: { $0.id == previousSelection }) {
-                browserSelectionNote = nil
-                hasLoadedBrowserWindows = true
+                windowSelectionNote = nil
+                hasLoadedWindows = true
+                selectedWindowDidChange()
                 return
             }
 
-            if hasLoadedBrowserWindows, previousSelection != nil {
-                selectedBrowserWindowID = nil
-                browserSelectionNote = windows.isEmpty
+            if !hasLoadedWindows {
+                selectedWindowID = windowCoordinator.frontmostCaptureWindowID(in: windows)
+                windowSelectionNote = nil
+            } else if previousSelection != nil {
+                awaitingAccessibilityWindowID = nil
+                selectedWindowID = nil
+                windowSelectionNote = windows.isEmpty
                     ? nil
                     : "之前选择的窗口已关闭，请重新选择。"
-            } else {
-                selectedBrowserWindowID = windows.first(where: { $0.isOnScreen })?.id
-                    ?? windows.first?.id
-                browserSelectionNote = nil
             }
-            hasLoadedBrowserWindows = true
+            hasLoadedWindows = true
+            selectedWindowDidChange()
         } catch {
             if isScreenCapturePermissionFailure(error) {
                 enterScreenCapturePermissionState()
             } else {
-                browserListError = error.localizedDescription
+                windowListError = error.localizedDescription
             }
         }
     }
@@ -638,8 +698,8 @@ final class AppModel: ObservableObject {
 
     func recordAgain() {
         guard endExportSession() else { return }
-        if mode == .browser {
-            Task { await refreshBrowserWindows() }
+        if mode == .window {
+            Task { await refreshWindows() }
         } else if mode == .region {
             captureModeDidChange(.region)
         }
@@ -649,7 +709,7 @@ final class AppModel: ObservableObject {
         let restoreCamera = activeCapturesCamera
         guard endExportSession() else { return }
         Task {
-            if mode == .browser { await refreshBrowserWindows() }
+            if mode == .window { await refreshWindows() }
             if mode == .region { captureModeDidChange(.region) }
             if restoreCamera {
                 setCameraCaptureEnabled(true)
@@ -688,10 +748,10 @@ final class AppModel: ObservableObject {
             cameraFailureDuringCountdown = nil
 
             let outputURL = try makeOutputURL()
-            let targetProcessID = mode == .browser ? selectedBrowserWindow?.processID : nil
+            let targetProcessID = mode == .window ? selectedWindow?.processID : nil
             let request = CaptureRequest(
                 mode: mode,
-                browserWindowID: selectedBrowserWindowID,
+                windowID: selectedWindowID,
                 region: mode == .region ? captureRegion : nil,
                 focusMask: mode == .region && isFocusMaskEnabled ? focusMask : nil,
                 captureCornerStyle: captureRegionCornerStyle,
@@ -712,7 +772,7 @@ final class AppModel: ObservableObject {
             )
             // Resolve the main panel before hiding it; keep this window identity
             // as the sole exception to the application's capture exclusion.
-            let mainPanel = mode == .browser ? nil : try await captureService.capturableMainWindow(
+            let mainPanel = mode == .window ? nil : try await captureService.capturableMainWindow(
                 windowID: windowCoordinator.mainWindowID
             )
             windowCoordinator.prepareForCountdown(targetProcessID: targetProcessID)
@@ -764,6 +824,7 @@ final class AppModel: ObservableObject {
                 isRegionSelectionLocked = windowCoordinator.setRegionSelectionLocked(previousRegionLock)
             }
             windowCoordinator.showMainWindow()
+            if mode == .window { selectedWindowDidChange() }
             windowCoordinator.updateGlobalShortcuts(
                 isRegionPreparing: mode == .region && previousPhase == .idle,
                 isRegionLocked: mode == .region && previousRegionLock,
@@ -809,7 +870,8 @@ final class AppModel: ObservableObject {
     private func enterScreenCapturePermissionState() {
         permissionGranted = false
         hasRequestedPermission = true
-        browserListError = nil
+        windowListError = nil
+        windowCoordinator.hideWindowSelection()
         isRegionSelectionLocked = false
         windowCoordinator.hideRegionSelection(resetMainWindowLevel: true)
         windowCoordinator.updateGlobalShortcuts(

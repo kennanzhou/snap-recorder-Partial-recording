@@ -123,25 +123,25 @@
                     <div class="selector">
                       <span class="knob" aria-hidden="true"><span class="knob-pointer"></span></span>
                       <div class="source-tabs stops" role="radiogroup" aria-label="录制来源">
-                        <button type="button" class="stop source-tab" role="radio" aria-checked="true" data-mode="browser"><span class="led" aria-hidden="true"></span>浏览器窗口</button>
+                        <button type="button" class="stop source-tab" role="radio" aria-checked="true" data-mode="browser"><span class="led" aria-hidden="true"></span>任意窗口</button>
                         <button type="button" class="stop source-tab" role="radio" aria-checked="false" tabindex="-1" data-mode="display"><span class="led" aria-hidden="true"></span>整个屏幕</button>
                         <button type="button" class="stop source-tab" role="radio" aria-checked="false" tabindex="-1" data-mode="region"><span class="led" aria-hidden="true"></span>局部录像</button>
                       </div>
                     </div>
 
                     <div class="source-detail">
-                      <!-- 浏览器窗口 -->
+                      <!-- 任意窗口 -->
                       <div class="source-pane" data-pane="browser">
                         <div class="pane-head">
-                          <p class="pane-title">选择一个浏览器窗口</p>
+                          <p class="pane-title">选择一个窗口</p>
                           <button type="button" class="key key-icon" id="refresh-windows" title="刷新窗口" aria-label="刷新窗口"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-refresh"/></svg></button>
                         </div>
                         <div class="browser-state" data-state="ok">
                           <div class="select">
                             <select id="window-select" aria-label="窗口">
-                              <option value="safari">Safari · 产品发布会草案</option>
-                              <option value="chrome">Google Chrome · 设计规范 v2</option>
-                              <option value="arc">Arc · 灵感收集</option>
+                              <option value="safari">访达 · 项目素材</option>
+                              <option value="chrome">飞书 · 产品发布会草案</option>
+                              <option value="arc">Google Chrome · 设计规范 v2</option>
                             </select>
                             <svg class="icon select-chevron" aria-hidden="true"><use href="#i-chevron"/></svg>
                           </div>
@@ -149,14 +149,14 @@
                           <p class="hint is-warn" id="browser-note" hidden><svg class="icon icon-sm" aria-hidden="true"><use href="#i-alert"/></svg>之前选择的窗口已关闭，请重新选择。</p>
                         </div>
                         <div class="browser-state state-inline" data-state="loading" hidden>
-                          <span class="spinner" aria-hidden="true"></span><span class="state-text">正在读取浏览器窗口…</span>
+                            <span class="spinner" aria-hidden="true"></span><span class="state-text">正在读取可录制窗口…</span>
                         </div>
                         <div class="browser-state" data-state="empty" hidden>
-                          <p class="state-title">没有找到浏览器窗口</p>
-                          <p class="state-text">请先打开浏览器窗口，然后点右上角刷新。</p>
+                          <p class="state-title">没有找到可录制窗口</p>
+                          <p class="state-text">请先打开一个应用窗口，然后点右上角刷新。</p>
                         </div>
                         <div class="browser-state" data-state="error" hidden>
-                          <p class="state-title is-warn"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-alert"/></svg>读取浏览器窗口失败</p>
+                          <p class="state-title is-warn"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-alert"/></svg>读取窗口失败</p>
                           <p class="state-text">系统暂时没有返回窗口列表，请稍后刷新。（示例错误信息）</p>
                         </div>
                       </div>
@@ -339,8 +339,8 @@
             <p class="bench-title" id="setup-bench-title">测试台 · 状态预览</p>
             <div class="bench-groups">
               <div class="bench-group">
-                <p class="bench-label">浏览器窗口</p>
-                <div class="chips" role="group" aria-label="浏览器窗口状态">
+                <p class="bench-label">任意窗口</p>
+                <div class="chips" role="group" aria-label="任意窗口状态">
                   <button type="button" class="chip" aria-pressed="true" data-review="browser:ok">正常</button>
                   <button type="button" class="chip" aria-pressed="false" data-review="browser:loading">读取中</button>
                   <button type="button" class="chip" aria-pressed="false" data-review="browser:empty">没有窗口</button>
@@ -467,7 +467,7 @@
               <span id="lbl-annotate">显示标注</span>
               <button type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="lbl-annotate" data-toggle="annotate"></button>
             </div>
-            <p class="sim-status" id="sim-status" aria-live="polite">待命：来源为浏览器窗口。</p>
+            <p class="sim-status" id="sim-status" aria-live="polite">待命：来源为任意窗口。</p>
           </div>
 
           <ol class="parts parts-row">
@@ -778,7 +778,7 @@
                 <div class="ctrl-demo" aria-hidden="true">
                   <span class="selector is-static" data-mode="display">
                     <span class="knob"><span class="knob-pointer"></span></span>
-                    <span class="stops"><span class="stop"><span class="led"></span>浏览器窗口</span><span class="stop is-on"><span class="led is-lit"></span>整个屏幕</span><span class="stop"><span class="led"></span>局部录像</span></span>
+                    <span class="stops"><span class="stop"><span class="led"></span>任意窗口</span><span class="stop is-on"><span class="led is-lit"></span>整个屏幕</span><span class="stop"><span class="led"></span>局部录像</span></span>
                   </span>
                 </div>
                 <p class="ctrl-spec">旋钮 56，滚花外圈、石墨指针；三挡分别指向 −29°、0°、29°，转动 220ms 带一点回弹。当前挡位的灯亮、字转石墨。</p>

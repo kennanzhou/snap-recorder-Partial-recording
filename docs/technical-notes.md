@@ -28,7 +28,7 @@ Snap Recorder 是单主窗口工具。空闲时关闭最后一个主窗口后，
 
 ## 隐私隔离
 
-- 浏览器：`SCContentFilter(desktopIndependentWindow:)`，采集源只包含一个窗口。
+- 任意窗口：`SCContentFilter(desktopIndependentWindow:)`，采集源只包含一个窗口。
 - 整屏：`SCContentFilter(display:excludingApplications:exceptingWindows:)`，排除 Snap Recorder 进程，但将主面板列为唯一 `exceptingWindows`。在倒计时隐藏主面板之前取得其 `SCWindow`，避免隐藏后枚举不到。
 - 局部：同样使用主面板为唯一例外的显示器过滤器，并把屏幕选区换算为 `SCStreamConfiguration.sourceRect`；不是录完整屏幕后再裁切。
 - 倒计时、录制 HUD 和摄像头预览窗口的 `NSWindow.sharingType` 为 `.none`。
@@ -58,7 +58,7 @@ ScreenCaptureKit 在暂停期间保持采集，但 writer 丢弃样本。继续�
 
 自然修饰使用 `original / natural / soft` 三档，默认原图，不再暴露连续数值。“自然”与“柔和”分别采用 0.055 / 0.09 的边缘保留降噪阈值，并以 60% / 85% 的处理图比例混合；仅在保守的人脸区域生效，并对眼、眉、嘴额外留出保护边距。它使用系统自带的 Vision 定位正脸区域，再用 Core Image 处理；不引入付费组件、第三方模型或网络服务，也不做瘦脸、美妆、五官形变。修饰发生在摄像头画中画合成之前，因此不会模糊网页文字或其他桌面内容。光线良好、肤质本已平滑或预览很小时，感知差异可能较小；不把数值差异等同于主观可见程度。
 
-主窗口禁用 `isMovableByWindowBackground`，只保留顶部标题栏拖动，避免 SwiftUI 控件的按住拖动手势被窗口移动抢走。无摄像头交互验收窗口复用同一 `makeMainWindow()` 创建逻辑，主面板 `sharingType = .readOnly`，辅助面板继续使用 `.none`。录制期间可从菜单栏或再次打开应用唤出主面板；不因允许主面板而放开后续创建的辅助浮窗。
+主窗口禁用 `isMovableByWindowBackground`，只保留顶部标题栏拖动，避免 SwiftUI 控件的按住拖动手势被窗口移动抢走。原生全尺寸标题栏已经提供 44pt 拖动区域，因此 SwiftUI 内容不再重复增加 44pt 顶部内边距，只保留 5pt 视觉呼吸区；三种录制来源和导出页的窗口总高度同步减少 39pt，内容区原有间距不变。无摄像头交互验收窗口复用同一 `makeMainWindow()` 创建逻辑，主面板 `sharingType = .readOnly`，辅助面板继续使用 `.none`。录制期间可从菜单栏或再次打开应用唤出主面板；不因允许主面板而放开后续创建的辅助浮窗。
 
 仅在自然修饰开启时检测人脸区域，结果只在内存中用于当前画面处理。区域检测不用于识别身份，不建立或保存人脸模型、特征向量或检测标记。关闭自然修饰后停止该处理路径，关闭摄像头时仍按原有生命周期释放采集与帧缓存。
 
@@ -76,9 +76,11 @@ ScreenCaptureKit 在暂停期间保持采集，但 writer 丢弃样本。继续�
 - 同一次导出的所有文件共用同一个重名后缀。任一步失败都回滚本次已提交的结果，并保留原始视频与人声以便重试。
 - 合并音频为 AAC 48 kHz 双声道 / 64–192 kbps（随视频档位）。电脑声音默认降至 78%，人声保持 100%，降低两路叠加时的削波风险。
 
-## 浏览器画布
+## 独立窗口画布
 
-浏览器模式在开始录制时按所选窗口的 Retina 原始像素确定 MP4 画布，最长边受 3840×2160 上限约束。采集尺寸与输出画布一致，窗口等比完整铺满，不添加桌面背景、圆角、阴影或额外边距。ScreenCaptureKit 使用 `.best` 采集质量。MP4 画布在录制开始后固定；中途改变窗口长宽比时，仍以开始时的比例完成本次录制。
+窗口模式通过 ScreenCaptureKit 的 `onScreenWindowsOnly` 枚举当前可见窗口，并仅保留标题非空、窗口层级为 0、尺寸至少 100×100，且 `NSRunningApplication.activationPolicy == .regular` 的来源，使列表与 `Command + Tab` 的常规应用范围一致。未命名、最小化、隐藏、其他 Space、桌面、DDPM 等辅助或后台进程、系统层小窗和 Snap Recorder 自身均被排除。ChatGPT 的 bundle ID 与 `Computer Use` / `Computer Use Controls` 标题组合属于已知内部控制窗，也会排除，但 ChatGPT 主窗口保留。同名窗口不合并，窗口 ID 仍是唯一选择依据。候选窗口完成过滤后按“浏览器 / 其他应用”稳定分组：使用明确的浏览器 bundle ID 与应用名称识别 Safari、Chrome、Firefox、Edge、Brave、Arc 等浏览器，避免把同样能够打开网页链接的 ChatGPT 等普通应用误归类；两个分组内部保留 ScreenCaptureKit 的当前前后顺序。开始录制时按所选窗口的 Retina 原始像素确定 MP4 画布，最长边受 3840×2160 上限约束。采集尺寸与输出画布一致，窗口等比完整铺满，不添加桌面背景、圆角、阴影或额外边距。ScreenCaptureKit 使用 `.best` 采集质量。MP4 画布在录制开始后固定；中途改变窗口长宽比时，仍以开始时的比例完成本次录制。
+
+首次读取来源时，用 `CGWindowListCopyWindowInfo` 的前后顺序选择 Snap Recorder 后方最前面的可录窗口，只显示目标框，不激活其他应用。刷新或恢复既有选择也保持被动，避免应用激活通知触发再次刷新而形成焦点闪烁。只有用户从菜单手动改选时，才使用 `NSRunningApplication.activate(options: [.activateAllWindows])` 将目标应用带到普通窗口最前。若同一进程存在多个候选窗口，则必须先取得辅助功能权限，再通过 AX 位置、尺寸和标题匹配目标，执行 `AXRaise` 并设置主窗口 / 焦点；未授权时不退化为应用级置顶，以免错误窗口出现在最前。权限页打开后保留原选择，用户允许并返回程序时自动重试，然后重新激活浮动层级的 Snap Recorder 主面板。目标框是独立的透明 `NSPanel`：使用信号橙闭合圆角描边与柔光、忽略鼠标事件、`sharingType = .none`，并通过 `CGWindowListCopyWindowInfo` 跟随目标窗口位置和尺寸。选中窗口时，另取一次忽略阴影的 `SCScreenshotManager` 内存快照，只读取四角 alpha 边界来估算实际圆角；快照不保留、不写盘，橙色主描边使用该半径，内描边按 1pt 间距缩减半径，保持同心。目标框在倒计时开始前隐藏，不进入成片。
 
 录制阶段保留高质量 H.264 原片到恢复目录，使用 High Profile、CABAC、Rec.709 与最高 30 fps，按像素数使用 24–68 Mbps，保留足够的后续导出余量。导出与录制的预算分开：所有视频档位均按 30 fps 输出；高清保留原生尺寸，目标最高 32 Mbps（仅在原片不超过 30 fps 时允许质量保护回退）；日常/小巧/极小逐步降低尺寸和码率。`ExportPlanning` 统一决定 UI 预估和实际导出参数，原片实际数据量较低时进一步收紧导出预算。旧版 60 fps 原片导出时降为 30 fps，不直接透传。
 
@@ -94,13 +96,13 @@ ScreenCaptureKit 在暂停期间保持采集，但 writer 丢弃样本。继续�
 
 局部选区窗口使用 AppKit 透明 `NSPanel`，固定比例只开放四角等比缩放，自定义比例同时开放边缘与四角缩放。选区使用主显示器逻辑坐标，转换为以左上角为原点的 ScreenCaptureKit point 坐标；输出尺寸再按 `pointPixelScale` 转为 Retina 像素并限制在 3840×2160 内。
 
-选区面板属于 Snap Recorder 自身且 `sharingType` 为 `.none`，采集过滤器也排除主面板以外的自身窗口，因此虚线框、灰色蒙版框和 50% 预览遮罩不会进入视频。大选区与小蒙版都提供方角 / 圆角切换并默认圆角。聚焦效果由 Core Image 写入成片：蒙版外先降为单色，再降低一档曝光（线性亮度减半）；蒙版内保留原图。圆角使用随输出尺寸缩放、但受上下限约束的 macOS 风格圆角；大选区还可使用扩展圆角遮罩与高斯羽化形成柔和暗角。
+选区面板属于 Snap Recorder 自身且 `sharingType` 为 `.none`，采集过滤器也排除主面板以外的自身窗口，因此信号橙虚线、外发光层、灰色蒙版框和 50% 预览遮罩不会进入视频。大选区外发光由比真实选区四边各扩展 14pt 的独立透明 `NSPanel` 绘制，忽略鼠标事件并随选区同步移动、缩放，因此不会挤占录制边界或影响拖动。大选区与小蒙版都提供方角 / 圆角切换并默认圆角。聚焦效果由 Core Image 写入成片：蒙版外先降为单色，再降低一档曝光（线性亮度减半）；蒙版内保留原图。圆角使用随输出尺寸缩放、但受上下限约束的 macOS 风格圆角；大选区还可使用扩展圆角遮罩与高斯羽化形成柔和暗角。
 
-`⌘E` 通过切换选区 `NSPanel.ignoresMouseEvents` 实现可调整与点击穿透状态。全局热键使用 Carbon `RegisterEventHotKey` 按状态临时注册：局部准备态注册 `⌘E`，浮层锁定后额外注册 `⌘R`，录制或暂停时只注册 `Esc`。离开对应状态立即注销，避免常驻抢占浏览器刷新等系统惯用键。
+`⌘E` 通过切换选区 `NSPanel.ignoresMouseEvents` 实现可调整与点击穿透状态。全局热键使用 Carbon `RegisterEventHotKey` 按状态临时注册：局部准备态注册 `⌘E`，浮层锁定后额外注册 `⌘R`，录制或暂停时只注册 `Esc`。离开对应状态立即注销，避免常驻抢占应用惯用键。
 
 ## 鼠标准星与点击波纹
 
-三种模式都把 `SCStreamConfiguration.showsCursor` 设为 `false`，因此系统箭头永远不会被 ScreenCaptureKit 直接写进画面。用户开启“录制鼠标”时，录制器在每个视频帧上轮询 `CGEvent` 的全局位置与 `CGEventSource.buttonState` 的公开会话按键状态，把坐标映射到浏览器窗口、显示器或局部选区，再由 Core Image 绘制白色准星（细圆环与四道短刻线，外描 60% 深色）和 0.65 秒点击扩散圆环；尺寸在 `MouseEffectStyle` 中按 1080p 定义，随画面短边在 0.65–2.25 倍之间缩放。关闭选项时不创建跟踪器，也不增加任何鼠标图层。
+三种模式都把 `SCStreamConfiguration.showsCursor` 设为 `false`，因此系统箭头永远不会被 ScreenCaptureKit 直接写进画面。用户开启“录制鼠标”时，录制器在每个视频帧上轮询 `CGEvent` 的全局位置与 `CGEventSource.buttonState` 的公开会话按键状态，把坐标映射到独立窗口、显示器或局部选区，再由 Core Image 绘制白色准星（细圆环与四道短刻线，外描 60% 深色）和 0.65 秒点击扩散圆环；尺寸在 `MouseEffectStyle` 中按 1080p 定义，随画面短边在 0.65–2.25 倍之间缩放。关闭选项时不创建跟踪器，也不增加任何鼠标图层。
 
 该实现不安装事件注入或键鼠监听，不要求辅助功能和输入监控权限。暂停期间不更新点击动画，继续录制时会同步当前按键状态并清空旧波纹，避免把暂停期间的点击误写到成片。
 

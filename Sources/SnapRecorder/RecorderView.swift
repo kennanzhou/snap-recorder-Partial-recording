@@ -7,8 +7,10 @@ struct RecorderView: View {
     @ObservedObject var model: AppModel
     @State private var showsCameraOptions = false
 
-    private static let setupHeight: CGFloat = 500
-    private static let regionSetupHeight: CGFloat = 626
+    // The native full-size title bar already contributes the 44pt drag area.
+    // These heights therefore describe only the visible content below it.
+    private static let setupHeight: CGFloat = 461
+    private static let regionSetupHeight: CGFloat = 587
     /// 四路通道的最小高度与说明文字的可用宽度（(560 − 24 × 2 − 8 × 3) ÷ 4 − 10 × 2）。
     private static let channelMinimumHeight: CGFloat = 120
     private static let channelTextWidth: CGFloat = 102
@@ -19,7 +21,7 @@ struct RecorderView: View {
                 .ignoresSafeArea()
 
             content
-                .padding(.top, 44)
+                .padding(.top, 5)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 22)
                 .allowsHitTesting(!showsCameraOptions)
@@ -44,19 +46,14 @@ struct RecorderView: View {
         .preferredColorScheme(.light)
         .onAppear {
             if model.permissionGranted {
-                Task { await model.refreshBrowserWindows() }
+                Task { await model.refreshWindows() }
                 model.captureModeDidChange(model.mode)
             }
         }
         .onChange(of: model.mode) { _, newValue in
             model.captureModeDidChange(newValue)
-            if newValue == .browser, model.permissionGranted {
-                Task { await model.refreshBrowserWindows() }
-            }
-        }
-        .onChange(of: model.selectedBrowserWindowID) { _, newValue in
-            if newValue != nil {
-                model.browserSelectionNote = nil
+            if newValue == .window, model.permissionGranted {
+                Task { await model.refreshWindows() }
             }
         }
         .onChange(of: model.cameraSettings) { _, _ in model.updateCameraPreview() }
@@ -96,7 +93,7 @@ struct RecorderView: View {
     }
 
     private var exportWorkspaceHeight: CGFloat {
-        var height: CGFloat = 500
+        var height: CGFloat = 461
         if model.exportSelection.includesVideo {
             if model.selectedQualityPreset == .custom { height += 66 }
         } else {
@@ -105,7 +102,7 @@ struct RecorderView: View {
         if !model.lastOutputURLs.isEmpty { height += 62 + savedListHeight }
         if model.errorMessage != nil || model.exportValidationMessage != nil { height += 46 }
         if model.completionNote != nil { height += 60 }
-        return min(800, height)
+        return min(761, height)
     }
 
     private var savedListHeight: CGFloat {
@@ -273,7 +270,7 @@ struct RecorderView: View {
 
     private var knobAngle: Angle {
         switch model.mode {
-        case .browser: .degrees(-29)
+        case .window: .degrees(-29)
         case .display: .degrees(0)
         case .region: .degrees(29)
         }
@@ -306,8 +303,8 @@ struct RecorderView: View {
     @ViewBuilder
     private var sourceDetail: some View {
         switch model.mode {
-        case .browser:
-            browserSourcePane
+        case .window:
+            windowSourcePane
         case .display:
             displaySourcePane
         case .region:
@@ -315,13 +312,13 @@ struct RecorderView: View {
         }
     }
 
-    private var browserSourcePane: some View {
+    private var windowSourcePane: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                paneTitle("选择一个浏览器窗口")
+                paneTitle("选择一个窗口")
                 Spacer()
                 Button {
-                    Task { await model.refreshBrowserWindows() }
+                    Task { await model.refreshWindows() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 12, weight: .semibold))
@@ -335,62 +332,86 @@ struct RecorderView: View {
             if model.isLoadingWindows {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
-                    Text("正在读取浏览器窗口…")
+                    Text("正在读取可录制窗口…")
                         .font(.system(size: 11))
                         .foregroundStyle(Instrument.ink2)
                 }
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-            } else if let browserListError = model.browserListError {
+            } else if let windowListError = model.windowListError {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("读取浏览器窗口失败", systemImage: "exclamationmark.triangle")
+                    Label("读取窗口失败", systemImage: "exclamationmark.triangle")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Instrument.warn)
-                    Text(browserListError)
+                    Text(windowListError)
                         .font(.system(size: 11))
                         .foregroundStyle(Instrument.ink2)
                         .lineLimit(2)
                 }
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-            } else if model.browserWindows.isEmpty {
+            } else if model.availableWindows.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("没有找到浏览器窗口")
+                    Text("没有找到可录制窗口")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Instrument.graphite)
-                    Text("请先打开浏览器窗口，然后点右上角刷新。")
+                    Text("请先打开一个应用窗口，然后点右上角刷新。")
                         .font(.system(size: 11))
                         .foregroundStyle(Instrument.ink2)
                 }
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
             } else {
-                browserWindowMenu
+                windowMenu
 
-                if let note = model.browserSelectionNote {
+                if let note = model.windowSelectionNote {
                     Label(note, systemImage: "exclamationmark.triangle")
                         .font(.system(size: 10.5))
                         .foregroundStyle(Instrument.warn)
                         .padding(.top, 8)
                 } else {
-                    hint("原生像素优先，最高约 4K；成片只包含这个窗口。")
+                    hint("橙色框标记目标；原生像素优先，成片只包含这个窗口。")
                         .padding(.top, 8)
                 }
             }
         }
     }
 
-    private var browserWindowMenu: some View {
+    private var windowMenu: some View {
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
-        return Picker("窗口", selection: $model.selectedBrowserWindowID) {
-            ForEach(model.browserWindows) { window in
-                Text("\(window.applicationName) · \(window.displayTitle)")
-                    .tag(Optional(window.id))
+        return Menu {
+            ForEach(model.availableWindows) { window in
+                Button {
+                    model.selectWindow(window.id)
+                } label: {
+                    if model.selectedWindowID == window.id {
+                        Label(
+                            "\(window.applicationName) · \(window.displayTitle)",
+                            systemImage: "checkmark"
+                        )
+                    } else {
+                        Text("\(window.applicationName) · \(window.displayTitle)")
+                    }
+                }
             }
+        } label: {
+            ZStack {
+                Color.clear
+                HStack(spacing: 8) {
+                    Text(selectedWindowMenuTitle)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Instrument.engrave)
+                }
+                .padding(.horizontal, 10)
+            }
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .contentShape(Rectangle())
         }
-        .labelsHidden()
-        .pickerStyle(.menu)
-        .buttonStyle(.borderless)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
         .tint(Instrument.graphite)
         .font(.system(size: 12, weight: .medium))
-        .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
         .background {
             shape
@@ -398,6 +419,13 @@ struct RecorderView: View {
                 .overlay { InnerShadow(shape: shape, color: .black.opacity(0.14), radius: 1, y: 1) }
         }
         .overlay { shape.strokeBorder(Instrument.graphite.opacity(0.24), lineWidth: 1).allowsHitTesting(false) }
+        .accessibilityLabel("窗口")
+        .accessibilityValue(selectedWindowMenuTitle)
+    }
+
+    private var selectedWindowMenuTitle: String {
+        guard let window = model.selectedWindow else { return "选择一个窗口" }
+        return "\(window.applicationName) · \(window.displayTitle)"
     }
 
     private var displaySourcePane: some View {

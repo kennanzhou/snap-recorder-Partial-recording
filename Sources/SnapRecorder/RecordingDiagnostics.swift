@@ -29,7 +29,7 @@ enum RecordingDiagnostics {
         let writer = try RecordingWriter(
             outputURL: outputURL,
             outputSize: outputSize,
-            mode: .browser,
+            mode: .window,
             capturesAudio: false
         )
 
@@ -204,7 +204,7 @@ enum RecordingDiagnostics {
         let writer = try RecordingWriter(
             outputURL: videoURL,
             outputSize: outputSize,
-            mode: .browser,
+            mode: .window,
             capturesAudio: false,
             microphoneOutputURL: voiceURL
         )
@@ -261,7 +261,7 @@ enum RecordingDiagnostics {
         let writer = try RecordingWriter(
             outputURL: videoURL,
             outputSize: outputSize,
-            mode: .browser,
+            mode: .window,
             capturesAudio: true,
             microphoneOutputURL: voiceURL
         )
@@ -582,7 +582,7 @@ enum RecordingDiagnostics {
     }
 
     private static func validateCaptureSizing() throws {
-        let browserSources = [
+        let windowSources = [
             CGSize(width: 2_882, height: 1_898),
             CGSize(width: 3_024, height: 1_964),
             CGSize(width: 1_920, height: 1_080),
@@ -591,8 +591,8 @@ enum RecordingDiagnostics {
             CGSize(width: 2_731, height: 1_535)
         ]
 
-        for source in browserSources {
-            let layout = CaptureSizing.browserLayout(source: source)
+        for source in windowSources {
+            let layout = CaptureSizing.windowLayout(source: source)
             let sourceRatio = source.width / source.height
             let outputRatio = layout.outputSize.width / layout.outputSize.height
 
@@ -608,18 +608,18 @@ enum RecordingDiagnostics {
                   layout.streamSize == layout.outputSize,
                   layout.contentRect == CGRect(origin: .zero, size: layout.outputSize) else {
                 throw CaptureError.couldNotFinishWriter(
-                    "浏览器布局自检异常（源 \(source)，输出 \(layout.outputSize)，采集 \(layout.streamSize)）。"
+                    "窗口布局自检异常（源 \(source)，输出 \(layout.outputSize)，采集 \(layout.streamSize)）。"
                 )
             }
         }
 
-        let nativeBrowserLayout = CaptureSizing.browserLayout(
+        let nativeWindowLayout = CaptureSizing.windowLayout(
             source: CGSize(width: 2_882, height: 1_898)
         )
-        guard nativeBrowserLayout.outputSize == CGSize(width: 2_882, height: 1_898),
-              nativeBrowserLayout.streamSize == CGSize(width: 2_882, height: 1_898) else {
+        guard nativeWindowLayout.outputSize == CGSize(width: 2_882, height: 1_898),
+              nativeWindowLayout.streamSize == CGSize(width: 2_882, height: 1_898) else {
             throw CaptureError.couldNotFinishWriter(
-                "原生浏览器像素自检异常（输出 \(nativeBrowserLayout.outputSize)，采集 \(nativeBrowserLayout.streamSize)）。"
+                "原生窗口像素自检异常（输出 \(nativeWindowLayout.outputSize)，采集 \(nativeWindowLayout.streamSize)）。"
             )
         }
 

@@ -4,7 +4,7 @@ import Foundation
 import VideoToolbox
 
 enum CaptureMode: String, CaseIterable, Identifiable {
-    case browser
+    case window
     case display
     case region
 
@@ -12,7 +12,7 @@ enum CaptureMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .browser: "浏览器窗口"
+        case .window: "任意窗口"
         case .display: "整个屏幕"
         case .region: "局部录像"
         }
@@ -175,13 +175,14 @@ enum CaptureStopOutcome {
     case awaitingExportChoice
 }
 
-struct BrowserWindowInfo: Identifiable, Equatable {
+struct CaptureWindowInfo: Identifiable, Equatable {
     let id: CGWindowID
     let processID: pid_t
     let applicationName: String
     let bundleIdentifier: String
     let title: String
     let isOnScreen: Bool
+    let frame: CGRect
     let size: CGSize
 
     var displayTitle: String {
@@ -230,7 +231,7 @@ struct MouseEffectSnapshot: Equatable {
 
 struct CaptureRequest {
     let mode: CaptureMode
-    let browserWindowID: CGWindowID?
+    let windowID: CGWindowID?
     let region: CaptureRegion?
     let focusMask: CaptureFocusMask?
     let captureCornerStyle: FocusMaskCornerStyle
@@ -245,8 +246,8 @@ struct CaptureRequest {
 enum CaptureError: LocalizedError {
     case permissionRequired
     case noDisplay
-    case noBrowserWindow
-    case browserWindowUnavailable
+    case noWindow
+    case windowUnavailable
     case noCaptureRegion
     case captureRegionUnavailable
     case noVideoFrames
@@ -266,16 +267,16 @@ enum CaptureError: LocalizedError {
             "需要先允许屏幕录制权限。"
         case .noDisplay:
             "没有找到可录制的显示器。"
-        case .noBrowserWindow:
-            "请先打开一个浏览器窗口。"
-        case .browserWindowUnavailable:
-            "选中的浏览器窗口已经关闭或不可用。"
+        case .noWindow:
+            "请先选择一个窗口。"
+        case .windowUnavailable:
+            "选中的窗口已经关闭或不可用。"
         case .noCaptureRegion:
             "请先在屏幕上调整好局部录制范围。"
         case .captureRegionUnavailable:
             "局部录制范围已不可用，请重新选择。"
         case .noVideoFrames:
-            "没有收到可录制画面。录浏览器时请确认窗口没有最小化，然后重试。"
+            "没有收到可录制画面。录制窗口时请确认它没有最小化，然后重试。"
         case .microphoneRequiresNewerSystem:
             "人声录制需要 macOS 15 或更高版本。"
         case .microphonePermissionRequired:
@@ -301,15 +302,15 @@ enum CaptureError: LocalizedError {
 enum CaptureSizing {
     static let maximumHighDefinitionOutputSize = CGSize(width: 3_840, height: 2_160)
 
-    struct BrowserLayout {
+    struct WindowLayout {
         let outputSize: CGSize
         let streamSize: CGSize
         let contentRect: CGRect
     }
 
-    static func browserLayout(source: CGSize) -> BrowserLayout {
+    static func windowLayout(source: CGSize) -> WindowLayout {
         guard source.width > 0, source.height > 0 else {
-            return BrowserLayout(outputSize: .zero, streamSize: .zero, contentRect: .zero)
+            return WindowLayout(outputSize: .zero, streamSize: .zero, contentRect: .zero)
         }
 
         let outputSize = fit(
@@ -317,7 +318,7 @@ enum CaptureSizing {
             inside: maximumHighDefinitionOutputSize,
             allowUpscale: false
         )
-        return BrowserLayout(
+        return WindowLayout(
             outputSize: outputSize,
             streamSize: outputSize,
             contentRect: CGRect(origin: .zero, size: outputSize)
