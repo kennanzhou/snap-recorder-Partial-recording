@@ -63,32 +63,37 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
         recoveryURLs = [videoURL, microphoneURL].compactMap { $0 }
     }
 
-    func browserWindows() async throws -> [BrowserWindowInfo] {
+    func availableWindows() async throws -> [CaptureWindowInfo] {
         let content = try await SCShareableContent.excludingDesktopWindows(
             true,
-            onScreenWindowsOnly: false
+            onScreenWindowsOnly: true
         )
 
-        return content.windows
-            .filter(Self.isBrowserWindow)
+        let windows = content.windows
+            .filter(Self.isRecordableWindow)
             .map { window in
-                BrowserWindowInfo(
+                CaptureWindowInfo(
                     id: window.windowID,
                     processID: window.owningApplication?.processID ?? 0,
-                    applicationName: window.owningApplication?.applicationName ?? "浏览器",
+                    applicationName: window.owningApplication?.applicationName ?? "应用",
                     bundleIdentifier: window.owningApplication?.bundleIdentifier ?? "",
                     title: window.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
                     isOnScreen: window.isOnScreen,
+                    frame: window.frame,
                     size: window.frame.size
                 )
             }
+
+        // Keep ScreenCaptureKit's front-to-back order inside each group, while
+        // collecting every browser window at the top of the popup menu.
+        return windows.enumerated()
             .sorted { lhs, rhs in
-                if lhs.isOnScreen != rhs.isOnScreen { return lhs.isOnScreen }
-                if lhs.applicationName != rhs.applicationName {
-                    return lhs.applicationName.localizedStandardCompare(rhs.applicationName) == .orderedAscending
-                }
-                return lhs.displayTitle.localizedStandardCompare(rhs.displayTitle) == .orderedAscending
+                let lhsIsBrowser = Self.isBrowserWindow(lhs.element)
+                let rhsIsBrowser = Self.isBrowserWindow(rhs.element)
+                if lhsIsBrowser != rhsIsBrowser { return lhsIsBrowser }
+                return lhs.offset < rhs.offset
             }
+            .map(\.element)
     }
 
     func capturableMainWindow(windowID: CGWindowID?) async throws -> SCWindow {
@@ -151,12 +156,12 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
         let mouseCaptureRect: CGRect
 
         switch request.mode {
-        case .browser:
-            guard let windowID = request.browserWindowID else {
-                throw CaptureError.noBrowserWindow
+        case .window:
+            guard let windowID = request.windowID else {
+                throw CaptureError.noWindow
             }
             guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
-                throw CaptureError.browserWindowUnavailable
+                throw CaptureError.windowUnavailable
             }
 
             filter = SCContentFilter(desktopIndependentWindow: window)
@@ -164,7 +169,7 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
                 width: max(2, filter.contentRect.width * CGFloat(filter.pointPixelScale)),
                 height: max(2, filter.contentRect.height * CGFloat(filter.pointPixelScale))
             )
-            let layout = CaptureSizing.browserLayout(source: sourcePixels)
+            let layout = CaptureSizing.windowLayout(source: sourcePixels)
             streamSize = layout.streamSize
             outputSize = layout.outputSize
             sourceRect = nil
@@ -251,7 +256,7 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
             configuration.captureMicrophone = true
         }
 
-        if request.mode == .browser {
+        if request.mode == .window {
             configuration.ignoreShadowsSingleWindow = true
             configuration.ignoreGlobalClipSingleWindow = true
         }
@@ -840,29 +845,70 @@ final class ScreenCaptureService: NSObject, @unchecked Sendable {
         return status == .complete
     }
 
-    private static func isBrowserWindow(_ window: SCWindow) -> Bool {
-        guard window.windowLayer == 0,
-              window.frame.width >= 360,
-              window.frame.height >= 240,
+    private static func isRecordableWindow(_ window: SCWindow) -> Bool {
+        let title = window.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard window.isOnScreen,
+              !title.isEmpty,
+              window.windowLayer == 0,
+              window.frame.width >= 100,
+              window.frame.height >= 100,
               let application = window.owningApplication else { return false }
 
-        let identifiers: Set<String> = [
-            "com.apple.Safari",
-            "com.apple.SafariTechnologyPreview",
-            "com.google.Chrome",
-            "com.google.Chrome.canary",
-            "com.microsoft.edgemac",
-            "company.thebrowser.Browser",
-            "org.mozilla.firefox",
-            "com.brave.Browser",
-            "com.kagi.kagimacOS",
-            "com.operasoftware.Opera"
-        ]
-        if identifiers.contains(application.bundleIdentifier) { return true }
+        // ChatGPT exposes its Codex computer-control surfaces as ordinary
+        // layer-zero windows. They are internal controls, not recording
+        // targets; keep the real ChatGPT conversation window available.
+        if application.bundleIdentifier == "com.openai.codex",
+           title == "Computer Use" || title == "Computer Use Controls" {
+            return false
+        }
 
-        let name = application.applicationName.lowercased()
-        return ["safari", "chrome", "edge", "arc", "firefox", "brave", "orion", "opera"]
-            .contains(where: name.contains)
+        let currentProcessID = ProcessInfo.processInfo.processIdentifier
+        guard application.processID != currentProcessID else { return false }
+
+        // Match the applications exposed by Command-Tab. Accessory/background
+        // processes may own shareable helper windows, but they are not useful
+        // top-level recording targets.
+        guard let runningApplication = NSRunningApplication(
+            processIdentifier: application.processID
+        ) else { return false }
+        return runningApplication.activationPolicy == .regular
+    }
+
+    /// Browser bundle identifiers are intentionally explicit: generic URL
+    /// handlers also include apps such as ChatGPT, which are not browsers.
+    private static func isBrowserWindow(_ window: CaptureWindowInfo) -> Bool {
+        let bundleIdentifier = window.bundleIdentifier.lowercased()
+        let browserBundlePrefixes = [
+            "com.apple.safari",
+            "com.google.chrome",
+            "org.chromium.chromium",
+            "org.mozilla.firefox",
+            "com.microsoft.edgemac",
+            "com.brave.browser",
+            "company.thebrowser.browser",
+            "company.thebrowser.dia",
+            "com.operasoftware.opera",
+            "com.vivaldi.vivaldi",
+            "com.kagi.kagimacos",
+            "com.duckduckgo.macos.browser",
+            "app.zen-browser.zen",
+            "one.ablaze.floorp",
+            "io.gitlab.librewolf-community",
+            "net.waterfox.waterfox",
+            "com.sigmaos.sigmaos",
+            "ai.perplexity.comet"
+        ]
+        if browserBundlePrefixes.contains(where: { bundleIdentifier.hasPrefix($0) }) {
+            return true
+        }
+
+        let applicationName = window.applicationName.lowercased()
+        let browserNames = [
+            "safari", "chrome", "chromium", "firefox", "edge", "brave",
+            "arc", "dia", "opera", "vivaldi", "orion", "duckduckgo",
+            "zen", "floorp", "librewolf", "waterfox", "sigmaos", "comet"
+        ]
+        return browserNames.contains { applicationName == $0 || applicationName.hasPrefix("\($0) ") }
     }
 }
 

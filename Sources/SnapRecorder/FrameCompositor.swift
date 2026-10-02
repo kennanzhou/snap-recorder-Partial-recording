@@ -70,8 +70,8 @@ final class FrameCompositor {
         switch mode {
         case .display, .region:
             image = displayComposition(source)
-        case .browser:
-            image = browserComposition(source)
+        case .window:
+            image = windowComposition(source)
         }
 
         if mode == .region, let focusMask {
@@ -107,7 +107,7 @@ final class FrameCompositor {
         return aspectFit(source, inside: canvasRect).composited(over: background)
     }
 
-    private func browserComposition(_ source: CIImage) -> CIImage {
+    private func windowComposition(_ source: CIImage) -> CIImage {
         let background = CIImage(color: .black).cropped(to: canvasRect)
         return aspectFit(source, inside: canvasRect).composited(over: background)
     }

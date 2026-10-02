@@ -107,7 +107,7 @@ enum CameraOverlayDiagnostics {
                             }
                         }
                         let destination = try buffer(size: canvasSize, color: .black)
-                        FrameCompositor(mode: .browser, outputSize: canvasSize, cameraOverlay: settings)
+                        FrameCompositor(mode: .window, outputSize: canvasSize, cameraOverlay: settings)
                             .render(
                                 source: source,
                                 into: destination,

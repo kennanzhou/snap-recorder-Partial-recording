@@ -324,7 +324,7 @@
   const $$ = (sel, scope) => Array.from((scope || document).querySelectorAll(sel));
   const reduceMotion = !!(root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
-  const MODE_TITLES = { browser: '浏览器窗口', display: '整个屏幕', region: '局部录像' };
+  const MODE_TITLES = { browser: '任意窗口', display: '整个屏幕', region: '局部录像' };
   const POS_TITLES = { topLeft: '左上角', topRight: '右上角', bottomLeft: '左下角', bottomRight: '右下角' };
   const SIZE_FRACTION = { small: 0.18, medium: 0.24, large: 0.32 };
   const PORTRAIT_SUB = {
@@ -837,7 +837,7 @@
     if (sessionBlocking()) {
       return S.releasedCamera ? '录制已结束：摄像头已释放，主面板回到导出页（见样片 03）。' : '录制已结束：主面板回到导出页（见样片 03）。';
     }
-    return canStart() ? `待命：来源为${MODE_TITLES[S.mode]}。` : '待命：请先在样片 01 选择一个浏览器窗口。';
+    return canStart() ? `待命：来源为${MODE_TITLES[S.mode]}。` : '待命：请先在样片 01 选择一个窗口。';
   }
 
   function renderStage() {
@@ -1101,7 +1101,7 @@
     if (!endSession('restart')) return;
     if (restoreCamera && S.permCamera) { S.camera = true; S.cameraReady = true; S.cameraMessage = null; }
     if (!canStart()) {
-      setExportStatus('（模拟）当前来源不可用，请先在样片 01 选择浏览器窗口。');
+      setExportStatus('（模拟）当前来源不可用，请先在样片 01 选择窗口。');
       renderAll();
       return;
     }

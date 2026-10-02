@@ -501,7 +501,7 @@ const assertKeysInSync = () => {
 
 if (pageLoaded) {
   const B1 = 'B1 初始状态与默认值';
-  check(B1, '录前默认：电脑声音开、人声关、摄像头关、录制鼠标开、来源为浏览器窗口（旋钮指向第一挡）', () => {
+  check(B1, '录前默认：电脑声音开、人声关、摄像头关、录制鼠标开、来源为任意窗口（旋钮指向第一挡）', () => {
     assert.strictEqual(attr('[data-toggle="systemAudio"]', 'aria-checked'), 'true');
     assert.strictEqual(attr('[data-toggle="mic"]', 'aria-checked'), 'false');
     assert.strictEqual(attr('[data-toggle="camera"]', 'aria-checked'), 'false');

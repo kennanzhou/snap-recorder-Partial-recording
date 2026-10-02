@@ -5,6 +5,8 @@ import CoreGraphics
 final class CaptureRegionOverlayController {
     private var panel: NSPanel?
     private var overlayView: CaptureRegionOverlayView?
+    private var glowPanel: NSPanel?
+    private var glowView: CaptureRegionGlowView?
     private var screen: NSScreen?
     private var selectionChanged: ((CaptureRegion) -> Void)?
     private var focusMaskChanged: ((CaptureFocusMask?) -> Void)?
@@ -64,6 +66,7 @@ final class CaptureRegionOverlayController {
             createdView.autoresizingMask = [.width, .height]
             createdPanel.contentView = createdView
             createdView.frameChanged = { [weak self] frame in
+                self?.updateGlowFrame(for: frame)
                 self?.publishSelection(for: frame)
             }
             createdView.focusMaskChanged = { [weak self] mask in
@@ -86,6 +89,7 @@ final class CaptureRegionOverlayController {
         )
         setInteractionLocked(interactionLocked)
         panel.orderFrontRegardless()
+        showGlow(around: panel.frame, relativeTo: panel, cornerStyle: captureCornerStyle)
         publishSelection(for: panel.frame)
         focusMaskChanged(currentFocusMask)
         return currentRegion
@@ -108,6 +112,7 @@ final class CaptureRegionOverlayController {
                 display: true
             )
         }
+        updateGlowFrame(for: panel.frame)
         overlayView.needsDisplay = true
         publishSelection(for: panel.frame)
         return currentRegion
@@ -133,6 +138,7 @@ final class CaptureRegionOverlayController {
 
     func setCaptureCornerStyle(_ style: FocusMaskCornerStyle) {
         overlayView?.setCaptureCornerStyle(style)
+        glowView?.setCaptureCornerStyle(style)
     }
 
     @discardableResult
@@ -155,6 +161,7 @@ final class CaptureRegionOverlayController {
 
     func hide() {
         overlayView?.setRecordingActive(false)
+        glowPanel?.orderOut(nil)
         panel?.orderOut(nil)
     }
 
@@ -171,6 +178,64 @@ final class CaptureRegionOverlayController {
         guard let screen,
               let region = Self.captureRegion(for: frame, on: screen) else { return }
         selectionChanged?(region)
+    }
+
+    private func showGlow(
+        around selectionFrame: CGRect,
+        relativeTo selectionPanel: NSPanel,
+        cornerStyle: FocusMaskCornerStyle
+    ) {
+        let glowPanel: NSPanel
+        let glowView: CaptureRegionGlowView
+        if let existingPanel = self.glowPanel, let existingView = self.glowView {
+            glowPanel = existingPanel
+            glowView = existingView
+        } else {
+            let createdPanel = NSPanel(
+                contentRect: Self.glowFrame(for: selectionFrame),
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered,
+                defer: false
+            )
+            createdPanel.level = .floating
+            createdPanel.isFloatingPanel = true
+            createdPanel.hidesOnDeactivate = false
+            createdPanel.becomesKeyOnlyIfNeeded = true
+            createdPanel.collectionBehavior = [
+                .canJoinAllSpaces,
+                .fullScreenAuxiliary,
+                .stationary,
+                .ignoresCycle
+            ]
+            createdPanel.backgroundColor = .clear
+            createdPanel.isOpaque = false
+            createdPanel.hasShadow = false
+            createdPanel.sharingType = .none
+            createdPanel.ignoresMouseEvents = true
+
+            let createdView = CaptureRegionGlowView(frame: createdPanel.contentView?.bounds ?? .zero)
+            createdView.autoresizingMask = [.width, .height]
+            createdPanel.contentView = createdView
+            self.glowPanel = createdPanel
+            self.glowView = createdView
+            glowPanel = createdPanel
+            glowView = createdView
+        }
+
+        glowView.setCaptureCornerStyle(cornerStyle)
+        glowPanel.setFrame(Self.glowFrame(for: selectionFrame), display: true)
+        glowPanel.order(.below, relativeTo: selectionPanel.windowNumber)
+    }
+
+    private func updateGlowFrame(for selectionFrame: CGRect) {
+        glowPanel?.setFrame(Self.glowFrame(for: selectionFrame), display: true)
+    }
+
+    private static func glowFrame(for selectionFrame: CGRect) -> CGRect {
+        selectionFrame.insetBy(
+            dx: -CaptureRegionOverlayMetrics.glowMargin,
+            dy: -CaptureRegionOverlayMetrics.glowMargin
+        )
     }
 
     private static func mainDisplayScreen() -> NSScreen? {
@@ -241,6 +306,49 @@ final class CaptureRegionOverlayController {
             displayID: CGDirectDisplayID(number.uint32Value),
             sourceRect: localRect
         )
+    }
+}
+
+private enum CaptureRegionOverlayMetrics {
+    static let glowMargin: CGFloat = 14
+    static let borderInset: CGFloat = 3
+    static let cornerRadius: CGFloat = 12
+    static let signal = NSColor(hex: 0xEE5A24)
+}
+
+/// 选区外侧的独立发光层；不接收事件，也不会进入 ScreenCaptureKit 的成片。
+private final class CaptureRegionGlowView: NSView {
+    private var captureCornerStyle: FocusMaskCornerStyle = .rounded
+
+    func setCaptureCornerStyle(_ style: FocusMaskCornerStyle) {
+        captureCornerStyle = style
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let inset = CaptureRegionOverlayMetrics.glowMargin
+            + CaptureRegionOverlayMetrics.borderInset
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        guard rect.width > 8, rect.height > 8 else { return }
+
+        let cornerRadius = captureCornerStyle == .rounded
+            ? CaptureRegionOverlayMetrics.cornerRadius
+            : 0
+        let path = cornerRadius > 0
+            ? NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+            : NSBezierPath(rect: rect)
+
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = CaptureRegionOverlayMetrics.signal.withAlphaComponent(0.78)
+        shadow.shadowBlurRadius = 11
+        shadow.shadowOffset = .zero
+        shadow.set()
+        path.lineWidth = 2
+        CaptureRegionOverlayMetrics.signal.withAlphaComponent(0.9).setStroke()
+        path.stroke()
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
 
@@ -444,10 +552,15 @@ private final class CaptureRegionOverlayView: NSView {
             drawFocusMask()
         }
 
-        let borderRect = bounds.insetBy(dx: 3, dy: 3)
-        let cornerRadius: CGFloat = captureCornerStyle == .rounded ? 12 : 0
+        let borderRect = bounds.insetBy(
+            dx: CaptureRegionOverlayMetrics.borderInset,
+            dy: CaptureRegionOverlayMetrics.borderInset
+        )
+        let cornerRadius: CGFloat = captureCornerStyle == .rounded
+            ? CaptureRegionOverlayMetrics.cornerRadius
+            : 0
 
-        // 深色内外描各 1pt，让白色虚线压在深浅画面上都清楚。
+        // 深色内外描各 1pt，让信号橙虚线压在深浅画面上都清楚。
         Overlay.outline.setStroke()
         for offset in [-1.25, 1.25] as [CGFloat] {
             let outline = Self.framePath(
@@ -461,7 +574,7 @@ private final class CaptureRegionOverlayView: NSView {
         let border = Self.framePath(borderRect, cornerRadius: cornerRadius)
         border.lineWidth = 1.5
         border.setLineDash([6, 4], count: 2, phase: 0)
-        NSColor.white.withAlphaComponent(0.95).setStroke()
+        Overlay.signal.setStroke()
         border.stroke()
 
         drawRulers(in: borderRect, cornerRadius: cornerRadius)

@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import AVFoundation
 import SwiftUI
 
@@ -12,6 +13,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     private var lastExternalApplication: NSRunningApplication?
     private var activationObserver: NSObjectProtocol?
     private let regionOverlay = CaptureRegionOverlayController()
+    private let windowHighlight = CaptureWindowHighlightController()
+    private var windowPresentationGeneration = UUID()
     private var shortcutController: GlobalShortcutController?
     private let cameraPreview = CameraPreviewController()
 
@@ -83,7 +86,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         restoreInteractiveMainWindowLevel()
         window.hidesOnDeactivate = false
         // Accessory apps can lose the ordering race when another normal-level
-        // app (usually the selected browser) is still active. LaunchServices
+        // app (usually the selected capture target) is still active. LaunchServices
         // can also restore that app after applicationDidFinishLaunching, so
         // confirm the same one-time ordering action on the next run-loop turn.
         bringMainWindowForward(window)
@@ -91,7 +94,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         Task { @MainActor [weak self, weak window] in
             // App activation is asynchronous. A short delayed confirmation
             // avoids LaunchServices returning focus to the previously active
-            // browser after a cold launch or reopen request.
+            // external app after a cold launch or reopen request.
             try? await Task.sleep(for: .milliseconds(150))
             guard let self, let window, self.mainWindow === window,
                   window.isVisible, self.model?.phase != .countdown else { return }
@@ -110,7 +113,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     /// Also used by the camera-free pointer-interaction test harness.
     static func makeMainWindow() -> NSWindow {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 510),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 471),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -215,6 +218,184 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         }
     }
 
+    @discardableResult
+    func showWindowSelection(
+        _ window: CaptureWindowInfo,
+        requiresExactRaise: Bool,
+        requestAccessibilityPermission: Bool,
+        bringsTargetForward: Bool
+    ) -> Bool {
+        let generation = UUID()
+        windowPresentationGeneration = generation
+        let canRaiseExactly = !requiresExactRaise || AXIsProcessTrusted()
+        if bringsTargetForward, requiresExactRaise, !canRaiseExactly,
+           requestAccessibilityPermission {
+            let options = [
+                kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
+            ] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+            Self.openAccessibilitySettings()
+        }
+        windowHighlight.show(windowID: window.id, fallbackFrame: window.frame)
+
+        // App activation alone cannot choose one window from a multi-window
+        // application. Without Accessibility permission it may raise a
+        // different Finder (or document) window, so wait for authorization
+        // instead of presenting the wrong target.
+        if bringsTargetForward, requiresExactRaise, !canRaiseExactly {
+            return false
+        }
+
+        // Automatic selection and passive refreshes must never change the
+        // active application. Otherwise becoming active triggers another
+        // refresh, which makes the target and Snap Recorder repeatedly steal
+        // focus from one another. Only an explicit menu selection may raise it.
+        guard bringsTargetForward else { return canRaiseExactly }
+
+        let targetApplication = NSRunningApplication(processIdentifier: window.processID)
+        targetApplication?.activate(options: [.activateAllWindows])
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(50))
+            if canRaiseExactly, requiresExactRaise {
+                _ = Self.raiseWindow(window)
+            }
+            try? await Task.sleep(for: .milliseconds(90))
+            guard let self, self.windowPresentationGeneration == generation,
+                  let mainWindow = self.mainWindow,
+                  self.model?.mode == .window,
+                  self.model?.phase == .idle else { return }
+            self.restoreInteractiveMainWindowLevel()
+            self.bringMainWindowForward(mainWindow)
+        }
+        return canRaiseExactly
+    }
+
+    var hasAccessibilityPermission: Bool {
+        AXIsProcessTrusted()
+    }
+
+    private static func openAccessibilitySettings() {
+        let addresses = [
+            // Current System Settings extension identifier (verified on macOS 26).
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
+            // Compatibility fallback for older macOS releases.
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        ]
+        for address in addresses {
+            guard let url = URL(string: address) else { continue }
+            if NSWorkspace.shared.open(url) { return }
+        }
+    }
+
+    /// Picks the topmost recordable window underneath Snap Recorder without
+    /// requiring Accessibility permission or activating another application.
+    func frontmostCaptureWindowID(in windows: [CaptureWindowInfo]) -> CGWindowID? {
+        let candidateIDs = Set(windows.map(\.id))
+        guard !candidateIDs.isEmpty,
+              let windowList = CGWindowListCopyWindowInfo(
+                [.optionOnScreenOnly, .excludeDesktopElements],
+                kCGNullWindowID
+              ) as? [[String: Any]] else {
+            return windows.first(where: \.isOnScreen)?.id ?? windows.first?.id
+        }
+
+        for item in windowList {
+            guard let number = item[kCGWindowNumber as String] as? NSNumber else { continue }
+            let windowID = CGWindowID(number.uint32Value)
+            if candidateIDs.contains(windowID) { return windowID }
+        }
+
+        if let processID = lastExternalApplication?.processIdentifier,
+           let matchingWindow = windows.first(where: {
+               $0.processID == processID && $0.isOnScreen
+           }) {
+            return matchingWindow.id
+        }
+        return windows.first(where: \.isOnScreen)?.id ?? windows.first?.id
+    }
+
+    func hideWindowSelection() {
+        windowPresentationGeneration = UUID()
+        windowHighlight.hide()
+    }
+
+    private static func raiseWindow(_ window: CaptureWindowInfo) -> Bool {
+        let application = AXUIElementCreateApplication(window.processID)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            application,
+            kAXWindowsAttribute as CFString,
+            &value
+        ) == .success,
+        let windows = value as? [AXUIElement] else { return false }
+
+        let bestMatch = windows.compactMap { element -> (AXUIElement, CGFloat)? in
+            guard let frame = accessibilityFrame(of: element) else { return nil }
+            let geometryDifference = abs(frame.minX - window.frame.minX)
+                + abs(frame.minY - window.frame.minY)
+                + abs(frame.width - window.frame.width)
+                + abs(frame.height - window.frame.height)
+            let title = accessibilityTitle(of: element)
+            let titlePenalty: CGFloat = window.title.isEmpty || title == window.title ? 0 : 10_000
+            return (element, geometryDifference + titlePenalty)
+        }.min { $0.1 < $1.1 }
+
+        guard let (element, score) = bestMatch, score < 80 else { return false }
+        _ = AXUIElementSetAttributeValue(
+            element,
+            kAXMainAttribute as CFString,
+            kCFBooleanTrue
+        )
+        _ = AXUIElementSetAttributeValue(
+            element,
+            kAXFocusedAttribute as CFString,
+            kCFBooleanTrue
+        )
+        return AXUIElementPerformAction(
+            element,
+            kAXRaiseAction as CFString
+        ) == .success
+    }
+
+    private static func accessibilityFrame(of element: AXUIElement) -> CGRect? {
+        var positionValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXPositionAttribute as CFString,
+            &positionValue
+        ) == .success,
+        AXUIElementCopyAttributeValue(
+            element,
+            kAXSizeAttribute as CFString,
+            &sizeValue
+        ) == .success,
+        let positionValue,
+        let sizeValue,
+        CFGetTypeID(positionValue) == AXValueGetTypeID(),
+        CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return nil }
+
+        let positionAXValue = positionValue as! AXValue
+        let sizeAXValue = sizeValue as! AXValue
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionAXValue, .cgPoint, &position),
+              AXValueGetValue(sizeAXValue, .cgSize, &size) else { return nil }
+        return CGRect(origin: position, size: size)
+    }
+
+    private static func accessibilityTitle(of element: AXUIElement) -> String {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXTitleAttribute as CFString,
+            &value
+        ) == .success else { return "" }
+        return value as? String ?? ""
+    }
+
     private func restoreInteractiveMainWindowLevel() {
         guard let model else { return }
         // The setup/export window must remain reachable while the user still
@@ -224,6 +405,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     func prepareForCountdown(targetProcessID: pid_t?) {
+        hideWindowSelection()
         mainWindow?.orderOut(nil)
         statusItem?.isVisible = false
 
