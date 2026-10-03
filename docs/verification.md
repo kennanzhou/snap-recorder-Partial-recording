@@ -2,6 +2,18 @@
 
 This document records reproducible project-level checks without retaining user recordings, window titles, personal paths, or private media.
 
+## v1.5.0 build 20: merged window and interaction updates
+
+2026-10-03. Packages the current main branch through merged PR #15 (`fa4e255`), including PR #14. Version metadata, current download links and product specifications advance to 1.5.0 / build 20. This release adds no further runtime changes beyond those merged PRs.
+
+- `swift build -c release`, the complete `.build/release/SnapRecorder --self-test`, and the self-test from the ZIP-extracted Universal App passed. The natural-retouch background-edge assertion reported in the PR descriptions did not reproduce on this machine.
+- The Instrument specification passed all 63 offline checks.
+- Built and extracted Apps pass strict deep signature verification, contain `x86_64 arm64`, report 1.5.0 / build 20, and have byte-identical executables.
+- The ZIP contains only the executable, Info.plist, icon and signature resources. No recordings, audio, screenshots, logs or test media are packaged. The stripped executable contains no local user-home path.
+- Package: `Snap-Recorder-v1.5.0-macOS-universal.zip`, 2,229,048 bytes; SHA-256 `1bfd6f0e36da28f5a471058ea6f94eefcab8b2a458b1b0e96729b2ab615a3aab`.
+- The installed App was replaced from the verified ZIP after confirming the old App was idle and preserving a rollback archive. Its signature and executable match the package. Launch inspection confirms the new “任意窗口” source and normal setup controls.
+- These generated-media and launch checks do not claim a new live screen, microphone or camera acceptance pass. GitHub publication and public download are separate release steps.
+
 ## Instrument product page and visual philosophy
 
 2026-09-30. The existing GitHub Pages site adopts the Instrument palette and material system: aluminum panels, graphite keys, recessed readouts and mechanical markings. README adds the design philosophy and links to the adopted specification. The App remains 1.1.1 / build 18; no recording/export code or package has changed.

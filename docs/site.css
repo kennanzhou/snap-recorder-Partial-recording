@@ -285,7 +285,7 @@ kbd { font: 10px/1.5 var(--mono); }
   .hero { padding-top: 22px; }
   .hero-topline { font-size: 8px; letter-spacing: .04em; }
   .hero-topline > span:last-child { font-size: 0; }
-  .hero-topline > span:last-child::after { content: "V 1.1.1"; font-size: 8px; }
+  .hero-topline > span:last-child::after { content: "V 1.5.0"; font-size: 8px; }
   .topline-divider { display: none; }
   .hero-layout { grid-template-columns: 1fr; gap: 39px; padding-block: 40px; }
   .hero-copy { text-align: center; }
