@@ -2,15 +2,25 @@
 
 This document records reproducible project-level checks without retaining user recordings, window titles, personal paths, or private media.
 
-## 2026-10-09: upstream PR preflight
+## 2026-10-09: portrait protection quantization fix
+
+- The portrait production processor is unchanged. Only active-filter protection checks now tolerate at most one 8-bit level per RGB channel; alpha is still exact. Original/off/no-face bypass and detection-lifecycle identity comparisons remain byte-identical.
+- Both Natural and Soft must preserve every sampled background edge's location and contrast. An all-black mask must preserve the complete fixture within the same RGB tolerance, with exact alpha.
+- Positive controls cover identical images, one-level channel changes and opposing one-level changes on the two sides of an edge. Negative controls require rejection of a two-level color change, a one-level alpha change, an actual 2px-radius Gaussian blur and a one-pixel edge shift. Cheek coverage, meaningful noise reduction, feature protection and face-loss recovery checks remain active.
+- `swift build -c release` passed. The complete `--self-test` passed twice, including on the final source: generated video/pause timing, repeat export/session cleanup, all four relative size tiers, custom ceiling, naming, mixed/separate/audio-only exports, voice alignment within 40ms, camera overlay/static-screen motion and the complete portrait diagnostic group.
+- Final generated export measurements: 1920×1080 / 1440×810 / 960×540 / 480×270 at 30 fps, with 4,246,901 / 4,090,953 / 1,759,296 / 674,159 bytes. The 0.75 MB custom ceiling retried to 679,641 bytes. No screen, microphone or camera hardware was captured during these tests.
+- `scripts/build-app.sh` rebuilt both architectures successfully. The resulting Universal App reports `x86_64 arm64`, passes strict deep signature verification and Info.plist lint, and its bundled executable passed the complete `--self-test` as well. The installed application was not replaced and no binary release was published.
+- This fixes the local false positive recorded below; the earlier preflight failure describes commit `697b995`, not the repaired source. Native slider-drag and extended physical-device acceptance limits below are unchanged.
+
+## 2026-10-09: upstream PR preflight (before portrait fix, commit 697b995)
 
 - Target: `shuyan-5200/snap-recorder:main`, verified at `d523be7`; source branch: `codex/quit-and-relative-video-size`. Previous upstream PRs #14 and #15 are merged. Version metadata remains 1.5.0/build 20; this is a development PR, not a new binary release.
 - `swift build -c release` passed. `--self-test --interface-only` passed for shared drawer metrics/motion, generated countdown sounds, display selection/placement and two-line Chinese channel descriptions.
 - `--self-test --export-only` passed with generated media. The 100% / 75% / 50% / 25% outputs were 1920×1080 / 1440×810 / 960×540 / 480×270 at 30 fps and measured 4,262,767 / 4,109,805 / 1,763,883 / 675,144 bytes. The 0.75 MB custom limit retried to 680,932 bytes. Cancellation, retry and safe window-title naming passed.
 - The visual-reference offline checks passed all 63 cases. They are static/minimal-DOM checks, not native-app or physical-device acceptance.
 - `--self-test-display-panels` passed on two connected displays: alerts followed the main panel and stayed above it; countdowns were centered, immovable, click-through and non-shareable, with complete cancellation/end cleanup. The existing local Universal package reports `x86_64 arm64`; strict deep signature verification and Info.plist lint passed. No replacement of the installed application or binary release was performed.
-- The required full `--self-test` still fails at `自然修饰模糊了画面背景边缘。` Both the production portrait processor and its diagnostics are unchanged from the upstream baseline.
-- A separate temporary synthetic-image probe reproduced the portrait failure: all sampled background-mask values were zero, edge locations stayed unchanged, and the maximum channel difference was one 8-bit level (for example red 128 → 127). An all-black mask produced the same discrepancy. A float32 working context removed that background-edge discrepancy. In a temporary copy, allowing at most one level in only the failing background comparison made the complete portrait diagnostic group pass. Neither that tolerance change nor any production portrait change is included in this PR; the full regression remains failing.
+- At this preflight revision, the required full `--self-test` failed at `自然修饰模糊了画面背景边缘。` Both the production portrait processor and its diagnostics were unchanged from the upstream baseline.
+- A separate temporary synthetic-image probe reproduced the portrait failure: all sampled background-mask values were zero, edge locations stayed unchanged, and the maximum channel difference was one 8-bit level (for example red 128 → 127). An all-black mask produced the same discrepancy. A float32 working context removed that background-edge discrepancy. In a temporary copy, allowing at most one level in only the failing background comparison made the complete portrait diagnostic group pass. That temporary experiment was not included in `697b995`; the subsequent test-only fix is recorded above.
 - No real screen recording, microphone session or camera session was started during this preflight. Earlier native layout/interaction checks and their remaining acceptance limits are recorded below. Temporary diagnostic programs and private captures are not included in the commit.
 
 ## 2026-10-09: display previews and channel alignment (local, unpublished)
